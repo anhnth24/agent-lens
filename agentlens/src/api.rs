@@ -62,9 +62,24 @@ pub async fn sessions(
 pub async fn session_events(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
 ) -> ApiResult {
+    let after = q.get("after").map(|s| s.as_str()).filter(|s| !s.is_empty());
     let conn = state.db.lock().unwrap();
-    Ok(Json(store::session_events(&conn, &id).map_err(err)?))
+    Ok(Json(store::session_events(&conn, &id, after).map_err(err)?))
+}
+
+/// View Live: các session hoạt động trong `mins` phút gần nhất (mặc định 10).
+pub async fn live(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    use chrono::{Duration, Utc};
+    let mins: i64 = q.get("mins").and_then(|s| s.parse().ok()).unwrap_or(10);
+    let since = (Utc::now() - Duration::minutes(mins.clamp(1, 1440))).to_rfc3339();
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::live_sessions(&conn, project, &since).map_err(err)?))
 }
 
 pub async fn summary(
@@ -443,7 +458,7 @@ pub async fn summarize(State(state): State<AppState>, Path(id): Path<String>) ->
     }
     let brief = {
         let conn = state.db.lock().unwrap();
-        let events = store::session_events(&conn, &id).map_err(err)?;
+        let events = store::session_events(&conn, &id, None).map_err(err)?;
         build_brief(&events)
     };
     if brief.trim().is_empty() {

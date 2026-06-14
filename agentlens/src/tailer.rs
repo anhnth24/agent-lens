@@ -12,6 +12,8 @@ pub async fn run(state: AppState) {
     let mut offsets: HashMap<PathBuf, u64> = HashMap::new();
     // prompt_id gần nhất theo session (chỉ dòng user có promptId) -> gán cho dòng assistant kế tiếp
     let mut last_prompt: HashMap<String, String> = HashMap::new();
+    // poll nhanh khi có hoạt động gần đây, chậm lại khi rảnh (tiết kiệm CPU)
+    let mut last_change = std::time::Instant::now() - std::time::Duration::from_secs(60);
     loop {
         let mut paths: Vec<PathBuf> = Vec::new();
         if state.projects_dir.exists() {
@@ -42,9 +44,12 @@ pub async fn run(state: AppState) {
             }
         }
         if changed {
+            last_change = std::time::Instant::now();
             let _ = state.events_tx.send(()); // báo WS refresh (bỏ qua nếu không có subscriber)
         }
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        // bám sát ~400ms trong 20s sau mỗi thay đổi (session đang chạy), nếu không thì 1.5s
+        let delay = if last_change.elapsed() < std::time::Duration::from_secs(20) { 400 } else { 1500 };
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
     }
 }
 

@@ -1239,14 +1239,19 @@ pub fn sessions(conn: &Connection, project: Option<&str>, from: Option<&str>) ->
     Ok(Value::Array(out))
 }
 
-/// Timeline 1 session.
-pub fn session_events(conn: &Connection, session_id: &str) -> Result<Value> {
-    let mut stmt = conn.prepare(
+/// Timeline 1 session. `after` (ISO ts) chỉ lấy event mới hơn — dùng cho auto-follow.
+pub fn session_events(conn: &Connection, session_id: &str, after: Option<&str>) -> Result<Value> {
+    let extra = match after {
+        Some(a) if !a.is_empty() => " AND ts > ?2",
+        _ => "",
+    };
+    let sql = format!(
         r#"SELECT ts,kind,role,text,thinking,tool_name,tool_input,tool_result,model,
                   input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,prompt_id,tool_error,cost_usd
-           FROM events WHERE session_id = ?1 ORDER BY ts, rowid"#,
-    )?;
-    let rows = stmt.query_map(params![session_id], |r| {
+           FROM events WHERE session_id = ?1{extra} ORDER BY ts, rowid"#
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let map = |r: &rusqlite::Row| {
         Ok(json!({
             "ts": r.get::<_, Option<String>>(0)?,
             "kind": r.get::<_, Option<String>>(1)?,
@@ -1265,8 +1270,68 @@ pub fn session_events(conn: &Connection, session_id: &str) -> Result<Value> {
             "tool_error": r.get::<_, i64>(14)? != 0,
             "cost_usd": r.get::<_, f64>(15)?,
         }))
-    })?;
-    Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
+    };
+    let out: Vec<Value> = match after {
+        Some(a) if !a.is_empty() => {
+            let rows = stmt.query_map(params![session_id, a], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+        _ => {
+            let rows = stmt.query_map(params![session_id], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+    };
+    Ok(Value::Array(out))
+}
+
+/// Các session đang/mới hoạt động (cho view Live): kèm hành động cuối + cost/token hiện tại.
+pub fn live_sessions(conn: &Connection, project: Option<&str>, since_ts: &str) -> Result<Value> {
+    let base = r#"SELECT s.session_id, s.project, s.git_branch, s.last_activity,
+                    COALESCE(SUM(e.cost_usd),0),
+                    COALESCE(SUM(e.input_tokens),0),
+                    COALESCE(SUM(e.output_tokens),0),
+                    COALESCE(SUM(e.cache_read_tokens),0),
+                    COUNT(e.event_id),
+                    (SELECT COALESCE(NULLIF(e2.tool_name,''), substr(e2.text,1,90))
+                       FROM events e2 WHERE e2.session_id=s.session_id
+                         AND (COALESCE(e2.tool_name,'')<>'' OR COALESCE(e2.text,'')<>'')
+                       ORDER BY e2.ts DESC, e2.rowid DESC LIMIT 1),
+                    (SELECT COALESCE(e3.tool_name,'') FROM events e3 WHERE e3.session_id=s.session_id
+                       AND COALESCE(e3.tool_name,'')<>'' ORDER BY e3.ts DESC, e3.rowid DESC LIMIT 1),
+                    (SELECT COALESCE(e4.model,'') FROM events e4 WHERE e4.session_id=s.session_id
+                       AND COALESCE(e4.model,'')<>'' ORDER BY e4.ts DESC, e4.rowid DESC LIMIT 1)
+                  FROM sessions s LEFT JOIN events e ON e.session_id=s.session_id
+                  WHERE s.last_activity >= ?1"#;
+    let tail = " GROUP BY s.session_id ORDER BY s.last_activity DESC";
+    let map = |r: &rusqlite::Row| {
+        Ok(json!({
+            "session_id": r.get::<_, String>(0)?,
+            "project": r.get::<_, Option<String>>(1)?,
+            "git_branch": r.get::<_, Option<String>>(2)?,
+            "last_activity": r.get::<_, Option<String>>(3)?,
+            "cost_usd": r.get::<_, f64>(4)?,
+            "input_tokens": r.get::<_, i64>(5)?,
+            "output_tokens": r.get::<_, i64>(6)?,
+            "cache_read_tokens": r.get::<_, i64>(7)?,
+            "events": r.get::<_, i64>(8)?,
+            "last_action": r.get::<_, Option<String>>(9)?,
+            "last_tool": r.get::<_, Option<String>>(10)?,
+            "model": r.get::<_, Option<String>>(11)?,
+        }))
+    };
+    let out: Vec<Value> = match project {
+        Some(p) => {
+            let mut stmt = conn.prepare(&format!("{base} AND s.project=?2{tail}"))?;
+            let rows = stmt.query_map(params![since_ts, p], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+        None => {
+            let mut stmt = conn.prepare(&format!("{base}{tail}"))?;
+            let rows = stmt.query_map(params![since_ts], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+    };
+    Ok(Value::Array(out))
 }
 
 /// Breakdown theo model TRONG 1 session (khi session đổi model giữa chừng).

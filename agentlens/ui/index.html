@@ -80,6 +80,12 @@
   .replay .rhead { display:flex; gap:8px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--border); }
   .replay .rbody { padding:12px 16px; overflow:auto; }
   .replay .rbody .head { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
+  #liveCards { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:10px; margin-top:8px; }
+  .livecard { border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:var(--panel); cursor:pointer; }
+  .livecard:hover { border-color:var(--accent); }
+  .livecard .lc-top { display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
+  .livecard .lc-act { margin:6px 0 4px; font-size:13px; }
+  .livecard .lc-meta { font-size:11px; color:var(--muted); }
 </style>
 </head>
 <body>
@@ -116,6 +122,7 @@ const tstr = s => s ? new Date(s).toLocaleString() : '—';
 const esc = s => (s??'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 let activeRepo = null, activeSession = null, range = 'all', activeTab = 'sessions';
 let replayEvs = [], replayIdx = 0;
+let autoFollow = false, lastEventTs = null, followBusy = false;
 const rq = () => 'range='+range;
 function setRange(r, btn){
   range = r;
@@ -161,7 +168,7 @@ async function loadRepos(){
   el.innerHTML = html;
 }
 
-const TABS = [['sessions','Sessions'],['tools','Tools'],['files','Files'],['analytics','Phân tích'],['quality','Chất lượng']];
+const TABS = [['live','🟢 Live'],['sessions','Sessions'],['tools','Tools'],['files','Files'],['analytics','Phân tích'],['quality','Chất lượng']];
 
 async function selectRepo(project){
   activeRepo = project; activeSession = null;
@@ -184,7 +191,8 @@ function setTab(t){
 function loadTab(project){
   const c = document.getElementById('tabContent');
   if(!c) return;
-  if(activeTab==='sessions'){ loadSessionsTab(project, c); }
+  if(activeTab==='live'){ loadLive(project, c); }
+  else if(activeTab==='sessions'){ loadSessionsTab(project, c); }
   else if(activeTab==='tools'){
     c.innerHTML = `<div id="toolsPanel"></div><div id="seqPanel"></div><div id="slowPanel"></div>`;
     loadTools(project); loadSequences(project); loadSlowest(project);
@@ -371,6 +379,44 @@ async function loadErrorClusters(project){
   document.getElementById('errClusterPanel').innerHTML = html + `</tbody></table>`;
 }
 
+async function loadLive(project, c){
+  // dựng khung 1 lần; các lần refresh sau chỉ thay #liveCards (đỡ giật/flicker)
+  if(c && !document.getElementById('liveCards')){
+    c.innerHTML = `<div class="lbl">Session hoạt động trong 10 phút qua — tự cập nhật
+      <span class="toks-mini">(near-realtime ~1–2s)</span></div><div id="liveCards"></div>`;
+  }
+  const cards = document.getElementById('liveCards'); if(!cards) return;
+  const q = '?mins=10'+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/live'+q).catch(()=>[]);
+  if(!rows.length){ cards.innerHTML = `<div class="empty">Không có session nào đang chạy. Mở Claude Code và thao tác để thấy nó hiện lên đây.</div>`; return; }
+  const now = Date.now();
+  cards.innerHTML = rows.map(s=>{
+    const ageMs = s.last_activity ? (now - new Date(s.last_activity).getTime()) : 1e12;
+    const running = ageMs < 90000; // <90s coi như đang chạy
+    const dotc = running ? '#3fb950' : '#d29922';
+    const age = ageMs<60000 ? Math.round(ageMs/1000)+'s trước' : Math.round(ageMs/60000)+'m trước';
+    const act = (s.last_action||'').replace(/\s+/g,' ').slice(0,90);
+    const tl = s.last_tool ? `🔧 ${esc(s.last_tool)}` : '💬';
+    return `<div class="livecard" onclick='openSession(${JSON.stringify(s.session_id)})'>
+      <div class="lc-top">
+        <span style="color:${dotc}">●</span>
+        <b class="mono">${shortId(s.session_id)}</b>
+        <span class="pill">${esc(s.project||'(không rõ)')}</span>
+        <span class="pill">${esc(s.git_branch||'—')}</span>
+        ${s.model?`<span class="pill">${esc(s.model)}</span>`:''}
+        <span class="time" style="margin-left:auto">${age}</span>
+      </div>
+      <div class="lc-act">${tl} · <span class="toks-mini">${esc(act)||'—'}</span></div>
+      <div class="lc-meta">
+        <span class="tin">in ${fmt(s.input_tokens)}</span> ·
+        <span class="tout">out ${fmt(s.output_tokens)}</span> ·
+        <span class="tcache">cached ${fmt(s.cache_read_tokens)}</span> ·
+        <span style="color:#3fb950">${money(s.cost_usd)}</span> ·
+        ${fmt(s.events)} events</div>
+    </div>`;
+  }).join('');
+}
+
 async function loadSessionsTab(project, c){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/sessions'+q);
@@ -529,7 +575,8 @@ async function openSession(id){
   const back = activeRepo===null ? 'selectRepo(null)' : `selectRepo(${JSON.stringify(activeRepo)})`;
   let html = `<div class="crumbs"><a onclick="${back}">← Sessions</a> / <b class="mono">${esc(id)}</b>
       <button class="tab" style="float:right" onclick='summarize(${JSON.stringify(id)},event)'>✨ Tóm tắt (LLM)</button>
-      <button class="tab" style="float:right;margin-right:6px" onclick='openReplay(event)'>▶ Replay</button></div>
+      <button class="tab" style="float:right;margin-right:6px" onclick='openReplay(event)'>▶ Replay</button>
+      <button class="tab ${autoFollow?'active':''}" id="followBtn" style="float:right;margin-right:6px" onclick='toggleFollow(event)'>${autoFollow?'🔴 Đang theo dõi':'⚪ Theo dõi'}</button></div>
       <div id="summaryBox"></div>`;
   // tag & outcome
   html += `<div style="margin:4px 0 10px">
@@ -606,32 +653,62 @@ async function openSession(id){
     }
     html += `</tbody></table><div class="lbl" style="margin-top:18px">Timeline</div>`;
   }
+  html += `<div id="timeline">`;
   if(!evs.length){ html += `<div class="empty">Chưa có event (transcript có thể chưa được tail).</div>`; }
-  for(const e of evs){
-    const role = e.role || e.kind || '';
-    const hasTok = e.input_tokens||e.output_tokens||e.cache_read_tokens;
-    const tk = hasTok ? `<span class="toks-mini">· <span class="tin">in ${fmt(e.input_tokens)}</span>
-       <span class="tout">out ${fmt(e.output_tokens)}</span>
-       <span class="tcache">cached ${fmt(e.cache_read_tokens)}</span></span>` : '';
-    const tool = e.tool_name ? `<span class="pill">🔧 ${esc(e.tool_name)}</span>` : '';
-    const errp = e.tool_error ? `<span class="pill" style="color:#f85149;border-color:#f85149">⚠ error</span>` : '';
-    let body = '';
-    if(e.thinking) body += `<div class="lbl">thinking</div><pre class="think">${esc(e.thinking)}</pre>`;
-    if(e.text) body += `<div class="lbl">text</div><pre>${esc(e.text)}</pre>`;
-    if(e.tool_input) body += `<div class="lbl">tool input</div><pre>${esc(e.tool_input)}</pre>`;
-    if(e.tool_result) body += `<div class="lbl">tool result</div><pre>${esc(e.tool_result)}</pre>`;
-    if(!body) body = `<div class="toks-mini">(không có nội dung text)</div>`;
-    html += `<div class="ev" onclick="this.classList.toggle('open')">
-      <div class="head">
-        <span class="role role-${role}">${esc(role)}</span>
-        ${tool}${errp}
-        <span class="time">${tstr(e.ts)}</span>
-        ${e.model?`<span class="pill">${esc(e.model)}</span>`:''}
-        ${tk}
-      </div>
-      <div class="body">${body}</div></div>`;
-  }
+  for(const e of evs){ html += eventCardHTML(e); }
+  html += `</div>`;
   document.getElementById('main').innerHTML = html;
+  // mốc để auto-follow chỉ kéo event mới hơn
+  lastEventTs = evs.length ? evs[evs.length-1].ts : null;
+}
+
+// Card 1 event (dùng chung cho timeline + auto-follow).
+function eventCardHTML(e){
+  const role = e.role || e.kind || '';
+  const hasTok = e.input_tokens||e.output_tokens||e.cache_read_tokens;
+  const tk = hasTok ? `<span class="toks-mini">· <span class="tin">in ${fmt(e.input_tokens)}</span>
+     <span class="tout">out ${fmt(e.output_tokens)}</span>
+     <span class="tcache">cached ${fmt(e.cache_read_tokens)}</span></span>` : '';
+  const tool = e.tool_name ? `<span class="pill">🔧 ${esc(e.tool_name)}</span>` : '';
+  const errp = e.tool_error ? `<span class="pill" style="color:#f85149;border-color:#f85149">⚠ error</span>` : '';
+  let body = '';
+  if(e.thinking) body += `<div class="lbl">thinking</div><pre class="think">${esc(e.thinking)}</pre>`;
+  if(e.text) body += `<div class="lbl">text</div><pre>${esc(e.text)}</pre>`;
+  if(e.tool_input) body += `<div class="lbl">tool input</div><pre>${esc(e.tool_input)}</pre>`;
+  if(e.tool_result) body += `<div class="lbl">tool result</div><pre>${esc(e.tool_result)}</pre>`;
+  if(!body) body = `<div class="toks-mini">(không có nội dung text)</div>`;
+  return `<div class="ev" onclick="this.classList.toggle('open')">
+    <div class="head"><span class="role role-${role}">${esc(role)}</span>
+      ${tool}${errp}<span class="time">${tstr(e.ts)}</span>
+      ${e.model?`<span class="pill">${esc(e.model)}</span>`:''}${tk}</div>
+    <div class="body">${body}</div></div>`;
+}
+
+function toggleFollow(ev){
+  if(ev) ev.stopPropagation();
+  autoFollow = !autoFollow;
+  const b = document.getElementById('followBtn');
+  if(b){ b.textContent = autoFollow?'🔴 Đang theo dõi':'⚪ Theo dõi'; b.classList.toggle('active', autoFollow); }
+  if(autoFollow) followAppend();
+}
+
+// Append CHỈ event mới vào timeline (không dựng lại trang). Chỉ tự cuộn nếu đang ở gần đáy.
+async function followAppend(){
+  if(!activeSession || !autoFollow || followBusy) return;
+  const tl = document.getElementById('timeline'); if(!tl) return;
+  followBusy = true;
+  try {
+    const enc = encodeURIComponent(activeSession);
+    const after = lastEventTs ? ('?after='+encodeURIComponent(lastEventTs)) : '';
+    const evs = await j('/api/sessions/'+enc+'/events'+after).catch(()=>[]);
+    if(evs.length){
+      const m = document.querySelector('main');
+      const nearBottom = m && (m.scrollHeight - m.scrollTop - m.clientHeight < 140);
+      tl.insertAdjacentHTML('beforeend', evs.map(eventCardHTML).join(''));
+      lastEventTs = evs[evs.length-1].ts || lastEventTs;
+      if(nearBottom && m) m.scrollTop = m.scrollHeight; // chỉ cuộn khi user đang theo dõi đáy
+    }
+  } finally { followBusy = false; }
 }
 
 async function summarize(id, ev){
@@ -754,11 +831,17 @@ async function saveTag(id){
 
 let refreshTimer = null;
 async function refreshCurrent(){
-  // refresh nhẹ theo view đang xem (giữ nguyên session/repo đang mở)
+  // Refresh tăng dần, KHÔNG dựng lại cả trang (tránh giật):
+  //  - đang mở session: chỉ append event mới nếu bật auto-follow
+  //  - đang ở tab live: chỉ thay #liveCards
+  //  - tab khác: nạp lại nội dung tab (không đụng sidebar)
   try {
-    await loadTotals();
-    if(activeSession){ /* không tự đóng/cuộn lại timeline đang đọc; chỉ cập nhật header */ }
-    else { await selectRepo(activeRepo); }
+    loadTotals();
+    if(activeSession){ if(autoFollow) followAppend(); return; }
+    const c = document.getElementById('tabContent');
+    if(!c) return; // đang ở search/insights → không đụng để khỏi mất kết quả
+    if(activeTab==='live'){ loadLive(activeRepo, c); }
+    else { loadTab(activeRepo); }
   } catch(e){ console.error(e); }
 }
 function liveDebounced(){ clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshCurrent, 600); }

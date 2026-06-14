@@ -95,6 +95,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/totals", get(api::totals))
         .route("/api/projects", get(api::projects))
         .route("/api/sessions", get(api::sessions))
+        .route("/api/live", get(api::live))
         .route("/api/sessions/:id/events", get(api::session_events))
         .route("/api/sessions/:id/prompts", get(api::session_prompts))
         .route("/api/sessions/:id/models", get(api::session_models))
