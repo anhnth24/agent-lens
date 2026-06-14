@@ -74,6 +74,7 @@
   .heatlbl { width:30px; font-size:11px; color:var(--muted); }
   .heath { width:16px; font-size:9px; color:var(--muted); text-align:left; }
   .heatcell { width:16px; height:16px; margin:1px; border-radius:2px; background:var(--panel2); }
+  .tabs { display:flex; gap:6px; margin:4px 0 14px; border-bottom:1px solid var(--border); padding-bottom:10px; }
 </style>
 </head>
 <body>
@@ -108,7 +109,7 @@ const cacheHit = o => { const d=(o.input_tokens||0)+(o.cache_read_tokens||0)+(o.
 const shortId = s => (s||'').slice(0,8);
 const tstr = s => s ? new Date(s).toLocaleString() : '—';
 const esc = s => (s??'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-let activeRepo = null, activeSession = null, range = 'all';
+let activeRepo = null, activeSession = null, range = 'all', activeTab = 'sessions';
 const rq = () => 'range='+range;
 function setRange(r, btn){
   range = r;
@@ -154,15 +155,46 @@ async function loadRepos(){
   el.innerHTML = html;
 }
 
+const TABS = [['sessions','Sessions'],['tools','Tools'],['files','Files'],['analytics','Phân tích']];
+
 async function selectRepo(project){
   activeRepo = project; activeSession = null;
   await loadRepos();
-  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
-  const rows = await j('/api/sessions'+q);
   const title = project===null ? 'Tất cả repo' : esc(project||'(không rõ)');
   let html = `<div class="crumbs"><a onclick="selectRepo(null)">Repos</a> / <b>${title}</b></div>`;
-  if(!rows.length){ html += `<div class="empty">Chưa có session nào.</div>`; document.getElementById('main').innerHTML=html; return; }
-  html += `<table><thead><tr>
+  html += `<div class="tabs">` + TABS.map(([k,l]) =>
+    `<button class="tab ${activeTab===k?'active':''}" data-t="${k}" onclick="setTab('${k}')">${l}</button>`).join('') + `</div>`;
+  html += `<div id="tabContent"></div>`;
+  document.getElementById('main').innerHTML = html;
+  loadTab(project);
+}
+
+function setTab(t){
+  activeTab = t;
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.t===t));
+  loadTab(activeRepo);
+}
+
+function loadTab(project){
+  const c = document.getElementById('tabContent');
+  if(!c) return;
+  if(activeTab==='sessions'){ loadSessionsTab(project, c); }
+  else if(activeTab==='tools'){
+    c.innerHTML = `<div id="toolsPanel"></div><div id="seqPanel"></div><div id="slowPanel"></div>`;
+    loadTools(project); loadSequences(project); loadSlowest(project);
+  } else if(activeTab==='files'){
+    c.innerHTML = `<div id="filesPanel"></div>`; loadFiles(project);
+  } else if(activeTab==='analytics'){
+    c.innerHTML = `<div id="trends"></div><div id="outcomePanel"></div><div id="heatmapPanel"></div>`;
+    loadTrends(); loadOutcomes(project); loadHeatmap(project);
+  }
+}
+
+async function loadSessionsTab(project, c){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/sessions'+q);
+  if(!rows.length){ c.innerHTML = `<div class="empty">Chưa có session nào.</div>`; return; }
+  let html = `<table><thead><tr>
       <th>Session</th><th>Repo</th><th class="num" title="điểm sức khỏe 0–100">health</th><th>Branch</th><th>Hoạt động cuối</th>
       <th class="num">in</th><th class="num">out</th><th class="num">cached</th><th class="num">cost</th><th class="num">events</th>
     </tr></thead><tbody>`;
@@ -183,11 +215,7 @@ async function selectRepo(project){
       <td class="num" style="color:#3fb950">${money(s.cost_usd)}</td>
       <td class="num">${fmt(s.events)}</td></tr>`;
   }
-  html += `</tbody></table><div id="trends"></div><div id="outcomePanel"></div><div id="heatmapPanel"></div>
-    <div id="toolsPanel"></div><div id="seqPanel"></div><div id="filesPanel"></div><div id="slowPanel"></div>`;
-  document.getElementById('main').innerHTML = html;
-  loadTrends(); loadOutcomes(project); loadHeatmap(project);
-  loadTools(project); loadSequences(project); loadFiles(project); loadSlowest(project);
+  c.innerHTML = html + `</tbody></table>`;
 }
 
 async function loadSequences(project){
