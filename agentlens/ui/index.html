@@ -236,6 +236,10 @@
   th{ font-family:"Pixelify Sans",monospace; font-weight:700; }
   .pill{ border-width:2px; }
   .hbadge{ border-width:2px; }
+  .hl{ background:var(--accent-weak); color:var(--accent); padding:1px 6px; font-weight:700;
+    border:1px solid color-mix(in srgb,var(--accent) 45%,transparent); white-space:nowrap; }
+  td .cat{ font-weight:700; }
+  td.money{ font-weight:700; }
   .repo.active{ border:2px solid var(--accent); }
   .repo.active::before{ display:none; }
   /* subtle CRT scanlines */
@@ -474,15 +478,15 @@ async function loadRightsizing(project){
   for(const r of rows){
     const save = r.has_opus ? r.save_haiku : 0;
     const flag = (r.simple && r.has_opus && save>0.05) ? ' '+ic('bulb',14) : '';
-    html += `<tr style="cursor:default"><td>${esc(r.category)}${flag}</td>
+    html += `<tr style="cursor:default"><td><b class="cat"${r.simple?' style="color:var(--accent)"':''}>${esc(r.category)}</b>${flag}</td>
       <td class="num">${fmt(r.events)}</td>
-      <td class="num tcost">${money(r.current_cost)}</td>
-      <td class="num">${money(r.as_sonnet)}</td>
-      <td class="num">${money(r.as_haiku)}</td>
-      <td class="num" style="color:${save>0.05?'var(--amber)':'var(--muted)'}">${money(save)}</td></tr>`;
+      <td class="num money tcost">${money(r.current_cost)}</td>
+      <td class="num money">${money(r.as_sonnet)}</td>
+      <td class="num money">${money(r.as_haiku)}</td>
+      <td class="num">${save>0.05?`<span class="hl">${money(save)}</span>`:`<span style="color:var(--muted)">${money(save)}</span>`}</td></tr>`;
   }
   html += `</tbody></table>`;
-  if(totSave>0.05) html += `<div class="finding sev-med">${ic('bulb',14)} Chỉ riêng tác vụ máy móc (đọc/tìm, bash) đang chạy Opus → nếu để Haiku ước tính tiết kiệm ~${money(totSave)}.
+  if(totSave>0.05) html += `<div class="finding sev-med">${ic('bulb',14)} Chỉ riêng tác vụ máy móc (<span class="hl">đọc/tìm</span> <span class="hl">bash</span>) đang chạy Opus → nếu để Haiku ước tính tiết kiệm <span class="hl">~${money(totSave)}</span>.
     <span class="toks-mini">Cột "tiết kiệm tối đa" là mức lý thuyết khi định giá lại TOÀN BỘ token (gồm cả cache-read, vốn gắn theo model) sang Haiku — chưa tính chênh lệch chất lượng đầu ra.</span></div>`;
   document.getElementById('rightsizePanel').innerHTML = html;
 }
