@@ -6,7 +6,7 @@
 <title>AgentLens — Claude Code sessions</title>
 <style>
   /* ui-ux-pro-max: PIXEL ART — Pixelify Sans + VT323, hard edges, hard shadows, limited palette */
-  @import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=VT323&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&display=swap');
   :root{
     /* dark — limited retro palette: ink on midnight, single amber accent */
     --bg:#12141d; --surface:#1b1e2c; --surface-2:#242838; --surface-3:#2e3349;
@@ -37,8 +37,9 @@
   body{ margin:0; background:var(--bg); color:var(--fg);
     font:15px/1.5 "Pixelify Sans",ui-monospace,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     image-rendering:pixelated; }
-  /* số liệu, code dùng VT323 (terminal) */
-  .mono,pre,.val,td.num,.kcard .val,.barlbl,.heath,.heatlbl{ font-family:"VT323",ui-monospace,Menlo,Consolas,monospace; }
+  /* code/ID dùng monospace; số dùng Pixelify (tabular) để dấu chấm/phẩy rõ */
+  .mono,pre{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace; }
+  .val,.kcard .val,td.num,.num{ font-variant-numeric:tabular-nums; }
   ::-webkit-scrollbar{ width:11px; height:11px; }
   ::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
   ::-webkit-scrollbar-thumb:hover{ background:var(--muted); background-clip:padding-box; }
@@ -64,7 +65,7 @@
   .kcard .top{ display:flex; align-items:center; gap:6px; color:var(--muted); font-size:10.5px;
     font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
   .kcard .top svg{ opacity:.75; }
-  .kcard .val{ font-size:27px; font-weight:400; letter-spacing:.01em; line-height:.95; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kcard .val{ font-size:22px; font-weight:600; letter-spacing:0; line-height:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   /* màu giới hạn: dữ liệu = ink trung tính; chỉ tiền dùng accent */
   .tin,.tout,.tcache{ color:var(--fg); } .tcost{ color:var(--accent); }
   .icon-btn{ flex:none; width:34px; height:34px; display:grid; place-items:center; cursor:pointer;
@@ -130,8 +131,7 @@
   tbody tr:last-child td{ border-bottom:none; }
   tbody tr:hover{ background:var(--accent-weak); }
   .num{ text-align:right; }
-  .mono{ font-family:"VT323",ui-monospace,Menlo,Consolas,monospace; font-size:16px; letter-spacing:.02em; }
-  td.num{ font-size:16px; }
+  .mono{ font-size:12.5px; }
 
   .pill{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:var(--radius-pill); font-size:11px;
     font-weight:600; background:var(--surface-2); border:1px solid var(--border); color:var(--fg-soft); }
@@ -183,8 +183,8 @@
   .ev.open .body{ display:block; }
   .ev.open .head{ border-bottom:1px solid var(--border); margin-bottom:8px; }
   pre{ white-space:pre-wrap; word-break:break-word; background:var(--bg); border:2px solid var(--border); border-radius:var(--radius-sm);
-    padding:10px 12px; margin:6px 0; max-height:360px; overflow:auto; font-size:15px;
-    font-family:"VT323",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    padding:10px 12px; margin:6px 0; max-height:360px; overflow:auto; font-size:12px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace; }
   .think{ border-left:3px solid var(--accent-2); }
 
   /* ── inputs ── */
@@ -235,7 +235,7 @@
   [data-theme="light"] .tab.active{ color:var(--surface); }
   th{ font-family:"Pixelify Sans",monospace; font-weight:700; }
   .pill{ border-width:2px; }
-  .hbadge{ border-width:2px; font-family:"VT323",monospace; font-size:15px; }
+  .hbadge{ border-width:2px; }
   .repo.active{ border:2px solid var(--accent); }
   .repo.active::before{ display:none; }
   /* subtle CRT scanlines */
