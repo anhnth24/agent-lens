@@ -69,6 +69,11 @@
   .finding { padding:7px 10px; border-radius:6px; margin:5px 0; border-left:3px solid var(--border); background:var(--panel); }
   .sev-high { border-left-color:#f85149; } .sev-med { border-left-color:var(--out); } .sev-low { border-left-color:var(--muted); }
   .taginput { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:5px 9px; color:var(--fg); margin-right:6px; }
+  .heat { display:inline-block; margin-top:6px; }
+  .heatrow { display:flex; align-items:center; }
+  .heatlbl { width:30px; font-size:11px; color:var(--muted); }
+  .heath { width:16px; font-size:9px; color:var(--muted); text-align:left; }
+  .heatcell { width:16px; height:16px; margin:1px; border-radius:2px; background:var(--panel2); }
 </style>
 </head>
 <body>
@@ -174,10 +179,47 @@ async function selectRepo(project){
       <td class="num" style="color:#3fb950">${money(s.cost_usd)}</td>
       <td class="num">${fmt(s.events)}</td></tr>`;
   }
-  html += `</tbody></table><div id="trends"></div><div id="toolsPanel"></div>
-    <div id="filesPanel"></div><div id="slowPanel"></div>`;
+  html += `</tbody></table><div id="trends"></div><div id="outcomePanel"></div><div id="heatmapPanel"></div>
+    <div id="toolsPanel"></div><div id="filesPanel"></div><div id="slowPanel"></div>`;
   document.getElementById('main').innerHTML = html;
-  loadTrends(); loadTools(project); loadFiles(project); loadSlowest(project);
+  loadTrends(); loadOutcomes(project); loadHeatmap(project);
+  loadTools(project); loadFiles(project); loadSlowest(project);
+}
+
+async function loadOutcomes(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/outcomes'+q).catch(()=>[]);
+  const tagged = rows.filter(r=>r.outcome!=='(chưa tag)' && r.sessions>0);
+  if(!tagged.length){ document.getElementById('outcomePanel').innerHTML=''; return; }
+  let html = `<div class="lbl" style="margin-top:20px">Outcome correlation — tag → kết quả</div>
+    <table><thead><tr><th>Outcome</th><th class="num">sessions</th><th class="num">cost TB</th>
+      <th class="num">token TB</th><th class="num">tool error</th></tr></thead><tbody>`;
+  for(const r of rows){
+    html += `<tr style="cursor:default"><td><span class="pill">${esc(r.outcome)}</span></td>
+      <td class="num">${fmt(r.sessions)}</td><td class="num" style="color:#3fb950">${money(r.avg_cost)}</td>
+      <td class="num">${fmt(r.avg_tokens)}</td><td class="num">${(r.error_rate*100).toFixed(0)}%</td></tr>`;
+  }
+  document.getElementById('outcomePanel').innerHTML = html + `</tbody></table>`;
+}
+
+async function loadHeatmap(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/heatmap'+q).catch(()=>[]);
+  if(!rows.length){ document.getElementById('heatmapPanel').innerHTML=''; return; }
+  const days=['CN','T2','T3','T4','T5','T6','T7'];
+  const max = Math.max(...rows.map(r=>r.count),1);
+  const grid={}; rows.forEach(r=>grid[r.dow+'-'+r.hour]=r.count);
+  let html = `<div class="lbl" style="margin-top:20px">Heatmap hoạt động (giờ UTC × thứ)</div><div class="heat">`;
+  html += `<div class="heatrow"><div class="heatlbl"></div>`;
+  for(let h=0;h<24;h++) html += `<div class="heath">${h%3===0?h:''}</div>`;
+  html += `</div>`;
+  for(let d=0;d<7;d++){
+    html += `<div class="heatrow"><div class="heatlbl">${days[d]}</div>`;
+    for(let h=0;h<24;h++){ const c=grid[d+'-'+h]||0; const op=c?(0.15+0.85*c/max):0;
+      html += `<div class="heatcell" title="${days[d]} ${h}h: ${c}" style="background:rgba(88,166,255,${op})"></div>`; }
+    html += `</div>`;
+  }
+  document.getElementById('heatmapPanel').innerHTML = html + `</div>`;
 }
 
 async function loadFiles(project){
@@ -296,13 +338,16 @@ async function openSession(id){
   if(prompts.length){
     html += `<div class="lbl">Breakdown theo prompt (${prompts.length})</div>
       <table><thead><tr><th>Prompt</th><th class="num">turns</th><th class="num">tools</th>
-        <th class="num">in</th><th class="num">out</th><th class="num">cached</th><th class="num">cost</th></tr></thead><tbody>`;
+        <th class="num">in</th><th class="num">out</th><th class="num">cached</th>
+        <th class="num" title="số bước reasoning (thinking block); chữ trong ngoặc là độ dài nếu version Claude Code có lưu">reasoning</th><th class="num">cost</th></tr></thead><tbody>`;
     for(const p of prompts){
-      const snip = (p.prompt||'').replace(/\s+/g,' ').slice(0,70);
+      const snip = (p.prompt||'').replace(/\s+/g,' ').slice(0,60);
+      const tk = p.thinking_chars||0; const tks = tk>=1000 ? ' · '+(tk/1000).toFixed(1)+'k ký tự' : (tk>0?' · '+tk+' ký tự':'');
       html += `<tr style="cursor:default"><td>${esc(snip)||'<i>—</i>'}</td>
         <td class="num">${fmt(p.turns)}</td><td class="num">${fmt(p.tool_turns)}</td>
         <td class="num tin">${fmt(p.input_tokens)}</td><td class="num tout">${fmt(p.output_tokens)}</td>
         <td class="num tcache">${fmt(p.cache_read_tokens)}</td>
+        <td class="num tcache" title="${fmt(p.thinking_blocks)} bước${tks}">${fmt(p.thinking_blocks)}</td>
         <td class="num" style="color:#3fb950">${money(p.cost_usd)}</td></tr>`;
     }
     html += `</tbody></table><div class="lbl" style="margin-top:18px">Timeline</div>`;

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS events (
   cache_creation_tokens INTEGER DEFAULT 0,
   cost_usd              REAL DEFAULT 0,
   tool_error            INTEGER DEFAULT 0,
+  thinking_blocks       INTEGER DEFAULT 0,
   git_branch            TEXT,
   cwd                   TEXT
 );
@@ -90,6 +91,7 @@ pub fn open(path: &std::path::Path) -> Result<Connection> {
         "ALTER TABLE tools ADD COLUMN target TEXT DEFAULT ''",
         "ALTER TABLE sessions ADD COLUMN tag TEXT DEFAULT ''",
         "ALTER TABLE sessions ADD COLUMN outcome TEXT DEFAULT ''",
+        "ALTER TABLE events ADD COLUMN thinking_blocks INTEGER DEFAULT 0",
     ] {
         let _ = conn.execute(stmt, []);
     }
@@ -150,8 +152,8 @@ pub fn insert_event(conn: &Connection, e: &Entry, _project: &str) -> Result<usiz
     let n = conn.execute(
         r#"INSERT OR IGNORE INTO events
            (event_id,session_id,prompt_id,ts,kind,role,text,thinking,tool_name,tool_input,tool_result,
-            model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,cost_usd,tool_error,git_branch,cwd)
-           VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)"#,
+            model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,cost_usd,tool_error,thinking_blocks,git_branch,cwd)
+           VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)"#,
         params![
             e.uuid,
             e.session_id,
@@ -171,6 +173,7 @@ pub fn insert_event(conn: &Connection, e: &Entry, _project: &str) -> Result<usiz
             e.cache_creation_tokens,
             cost,
             e.tool_error as i64,
+            e.thinking_blocks,
             e.git_branch,
             e.cwd,
         ],
@@ -233,6 +236,98 @@ pub fn search(conn: &Connection, q: &str, project: Option<&str>, limit: i64) -> 
             let v = stmt.query_map(params![like, limit], map)?.collect::<rusqlite::Result<_>>()?;
             v
         }
+    };
+    Ok(Value::Array(out))
+}
+
+/// Outcome correlation: gộp metrics theo tag outcome (success/partial/fail/chưa tag).
+pub fn outcomes(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    use std::collections::BTreeMap;
+    // (sessions, cost, tokens, events, tools, errs)
+    let mut m: BTreeMap<String, (i64, f64, i64, i64, i64, i64)> = BTreeMap::new();
+    let key = |s: String| if s.is_empty() { "(chưa tag)".to_string() } else { s };
+
+    let sql1 = format!(
+        r#"SELECT COALESCE(s.outcome,''), COUNT(DISTINCT s.session_id),
+                  COALESCE(SUM(e.cost_usd),0),
+                  COALESCE(SUM(e.input_tokens)+SUM(e.output_tokens),0),
+                  COUNT(e.event_id)
+           FROM sessions s LEFT JOIN events e ON e.session_id=s.session_id
+           WHERE 1=1{proj}{time} GROUP BY COALESCE(s.outcome,'')"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("s.last_activity", from, "AND"),
+    );
+    {
+        let mut st = conn.prepare(&sql1)?;
+        let f = |r: &rusqlite::Row| Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?, r.get::<_,f64>(2)?, r.get::<_,i64>(3)?, r.get::<_,i64>(4)?));
+        let rows: Vec<(String, i64, f64, i64, i64)> = match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        };
+        for (o, sess, cost, tok, ev) in rows {
+            let e = m.entry(key(o)).or_default();
+            e.0 = sess; e.1 = cost; e.2 = tok; e.3 = ev;
+        }
+    }
+
+    let sql2 = format!(
+        r#"SELECT COALESCE(s.outcome,''), COUNT(*), COALESCE(SUM(t.is_error),0)
+           FROM sessions s JOIN tools t ON t.session_id=s.session_id
+           WHERE 1=1{proj}{time} GROUP BY COALESCE(s.outcome,'')"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("t.ts_use", from, "AND"),
+    );
+    {
+        let mut st = conn.prepare(&sql2)?;
+        let f = |r: &rusqlite::Row| Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?, r.get::<_,i64>(2)?));
+        let rows: Vec<(String, i64, i64)> = match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        };
+        for (o, tools, errs) in rows {
+            let e = m.entry(key(o)).or_default();
+            e.4 = tools; e.5 = errs;
+        }
+    }
+
+    let out: Vec<Value> = m.into_iter().map(|(o, (sess, cost, tok, ev, tools, errs))| {
+        let s = sess.max(1) as f64;
+        json!({
+            "outcome": o,
+            "sessions": sess,
+            "cost_usd": cost,
+            "avg_cost": cost / s,
+            "tokens": tok,
+            "avg_tokens": (tok as f64 / s) as i64,
+            "events": ev,
+            "tools": tools,
+            "tool_errors": errs,
+            "error_rate": if tools > 0 { errs as f64 / tools as f64 } else { 0.0 },
+        })
+    }).collect();
+    Ok(Value::Array(out))
+}
+
+/// Heatmap hoạt động theo (thứ trong tuần, giờ) — UTC.
+pub fn heatmap(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
+        r#"SELECT CAST(strftime('%w', e.ts) AS INTEGER), CAST(strftime('%H', e.ts) AS INTEGER), COUNT(*)
+           FROM events e JOIN sessions s ON s.session_id=e.session_id
+           WHERE e.ts<>''{proj}{time}
+           GROUP BY 1,2"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("e.ts", from, "AND"),
+    );
+    let map = |r: &rusqlite::Row| {
+        Ok(json!({
+            "dow": r.get::<_, i64>(0)?,
+            "hour": r.get::<_, i64>(1)?,
+            "count": r.get::<_, i64>(2)?,
+        }))
+    };
+    let out: Vec<Value> = match project {
+        Some(p) => { let mut s=conn.prepare(&sql)?; let v=s.query_map(params![p],map)?.collect::<rusqlite::Result<_>>()?; v }
+        None => { let mut s=conn.prepare(&sql)?; let v=s.query_map([],map)?.collect::<rusqlite::Result<_>>()?; v }
     };
     Ok(Value::Array(out))
 }
@@ -710,6 +805,8 @@ pub fn prompt_breakdown(conn: &Connection, session_id: &str) -> Result<Value> {
                   COALESCE(SUM(ev.cache_read_tokens),0),
                   COALESCE(SUM(ev.cost_usd),0),
                   SUM(CASE WHEN ev.tool_name IS NOT NULL AND ev.tool_name<>'' THEN 1 ELSE 0 END),
+                  COALESCE(SUM(LENGTH(ev.thinking)),0),
+                  COALESCE(SUM(ev.thinking_blocks),0),
                   MIN(ev.ts),
                   (SELECT e2.text FROM events e2
                      WHERE e2.session_id = ev.session_id AND e2.prompt_id = ev.prompt_id
@@ -727,8 +824,10 @@ pub fn prompt_breakdown(conn: &Connection, session_id: &str) -> Result<Value> {
             "cache_read_tokens": r.get::<_, i64>(4)?,
             "cost_usd": r.get::<_, f64>(5)?,
             "tool_turns": r.get::<_, i64>(6)?,
-            "started_at": r.get::<_, Option<String>>(7)?,
-            "prompt": r.get::<_, Option<String>>(8)?,
+            "thinking_chars": r.get::<_, i64>(7)?,
+            "thinking_blocks": r.get::<_, i64>(8)?,
+            "started_at": r.get::<_, Option<String>>(9)?,
+            "prompt": r.get::<_, Option<String>>(10)?,
         }))
     })?;
     Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))

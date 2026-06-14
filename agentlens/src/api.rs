@@ -127,6 +127,26 @@ pub async fn slowest(
     Ok(Json(store::slowest(&conn, project, from.as_deref()).map_err(err)?))
 }
 
+pub async fn outcomes(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::outcomes(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn heatmap(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::heatmap(&conn, project, from.as_deref()).map_err(err)?))
+}
+
 pub async fn search(
     State(state): State<AppState>,
     Query(q): Query<HashMap<String, String>>,

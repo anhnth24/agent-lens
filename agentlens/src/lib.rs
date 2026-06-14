@@ -105,6 +105,8 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/tools", get(api::tools))
         .route("/api/files", get(api::hot_files))
         .route("/api/slowest", get(api::slowest))
+        .route("/api/outcomes", get(api::outcomes))
+        .route("/api/heatmap", get(api::heatmap))
         .route("/api/search", get(api::search))
         .route("/api/insights", get(api::list_insights))
         .route("/api/insights/analyze", post(api::analyze_insights))

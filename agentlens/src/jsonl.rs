@@ -27,6 +27,7 @@ pub struct Entry {
     pub role: Option<String>,
     pub text: String,
     pub thinking: String,
+    pub thinking_blocks: i64, // số block thinking (kể cả khi text bị redact/rỗng) = số bước reasoning
     pub tool_name: Option<String>,
     pub tool_input: Option<String>,
     pub tool_result: Option<String>,
@@ -116,9 +117,12 @@ pub fn parse(line: &str) -> Option<Entry> {
                                 texts.push(t.to_string());
                             }
                         }
-                        Some("thinking") => {
+                        Some("thinking") | Some("redacted_thinking") => {
+                            e.thinking_blocks += 1; // tính cả block bị redact (chỉ có signature)
                             if let Some(t) = b.get("thinking").and_then(|x| x.as_str()) {
-                                thinks.push(t.to_string());
+                                if !t.is_empty() {
+                                    thinks.push(t.to_string());
+                                }
                             }
                         }
                         Some("tool_use") => {
