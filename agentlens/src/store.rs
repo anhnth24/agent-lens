@@ -961,12 +961,15 @@ pub fn model_rightsizing(conn: &Connection, project: Option<&str>, from: Option<
     let mut out: Vec<Value> = m.into_iter().map(|(cat, (cost, in_, out, cr, cc, n, has_opus))| {
         let as_sonnet = crate::pricing::cost("claude-sonnet", in_, out, cr, cc);
         let as_haiku = crate::pricing::cost("claude-haiku", in_, out, cr, cc);
+        // chỉ tác vụ máy móc mới hợp lý để hạ Opus -> Haiku (đọc/tìm, bash)
+        let simple = cat == "đọc/tìm" || cat == "bash";
         json!({
             "category": cat, "events": n, "current_cost": cost,
             "as_sonnet": as_sonnet, "as_haiku": as_haiku,
             "save_sonnet": (cost - as_sonnet).max(0.0),
             "save_haiku": (cost - as_haiku).max(0.0),
             "has_opus": has_opus,
+            "simple": simple,
         })
     }).collect();
     out.sort_by(|a, b| b["current_cost"].as_f64().unwrap_or(0.0)

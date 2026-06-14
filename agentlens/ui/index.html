@@ -466,14 +466,14 @@ async function loadRightsizing(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/model-rightsizing'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('rightsizePanel').innerHTML=''; return; }
-  const totSave = rows.reduce((a,r)=>a+(r.has_opus?r.save_haiku:0),0);
+  const totSave = rows.reduce((a,r)=>a+((r.simple&&r.has_opus)?r.save_haiku:0),0);
   let html = `<div class="lbl">Model right-sizing — cost theo nhóm việc vs model rẻ hơn
     <span class="note">[Inference] heuristic, không phải khuyến nghị tuyệt đối</span></div>
     <table><thead><tr><th>Nhóm việc</th><th class="num">events</th><th class="num">cost hiện tại</th>
       <th class="num">nếu Sonnet</th><th class="num">nếu Haiku</th><th class="num">tiết kiệm tối đa</th></tr></thead><tbody>`;
   for(const r of rows){
     const save = r.has_opus ? r.save_haiku : 0;
-    const flag = r.has_opus && save>0.05 ? ' '+ic('bulb',14) : '';
+    const flag = (r.simple && r.has_opus && save>0.05) ? ' '+ic('bulb',14) : '';
     html += `<tr style="cursor:default"><td>${esc(r.category)}${flag}</td>
       <td class="num">${fmt(r.events)}</td>
       <td class="num tcost">${money(r.current_cost)}</td>
@@ -482,7 +482,8 @@ async function loadRightsizing(project){
       <td class="num" style="color:${save>0.05?'var(--amber)':'var(--muted)'}">${money(save)}</td></tr>`;
   }
   html += `</tbody></table>`;
-  if(totSave>0.05) html += `<div class="finding sev-med">${ic('bulb',14)} Nếu các nhóm việc đơn giản dùng Haiku thay Opus, ước tính tiết kiệm tới ${money(totSave)} (theo token đã ghi).</div>`;
+  if(totSave>0.05) html += `<div class="finding sev-med">${ic('bulb',14)} Chỉ riêng tác vụ máy móc (đọc/tìm, bash) đang chạy Opus → nếu để Haiku ước tính tiết kiệm ~${money(totSave)}.
+    <span class="toks-mini">Cột "tiết kiệm tối đa" là mức lý thuyết khi định giá lại TOÀN BỘ token (gồm cả cache-read, vốn gắn theo model) sang Haiku — chưa tính chênh lệch chất lượng đầu ra.</span></div>`;
   document.getElementById('rightsizePanel').innerHTML = html;
 }
 
