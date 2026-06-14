@@ -1,22 +1,22 @@
 # AgentLens — Bộ tài liệu dự án
 
-Hệ thống quan sát & phân tích workflow coding agent (Claude Code → agent-agnostic), org-wide, desktop (Tauri).
+Công cụ **local** ghi lại session Claude Code (hook · thinking · prompt · token/cost) để **review sau** và rút ra cải tiến workflow. Phạm vi hiện tại: **lean / local-first** cho cá nhân hoặc team nhỏ.
 
-## Thứ tự đọc
-1. **PRD-0001** — yêu cầu nghiệp vụ (cái gì / tại sao), 10 module, ~50 FR.
-2. **TRD-0001** — thiết kế kỹ thuật (xây thế nào): kiến trúc, DDL ClickHouse+PostgreSQL, hook/OTEL config, LLM gateway, cấu trúc monorepo, thứ tự build A→E, docker-compose.
-3. **module-list** — phân rã 10 module + boundary + phụ thuộc.
-4. **feature-catalog** — 44 feature, map FR + phase + status (granularity để giao việc).
-5. **PERSONAS** — Dev / Lead / Admin / Security + Three Amigos.
-6. **PROJECT-CHARTER** — mục tiêu, scope, roadmap Phase A→E.
-7. **RISK-REGISTER** — risk chấm P×I (R-04 đã Accept; thêm R-12/R-13).
-8. **TEST-STRATEGY** — test theo module/FR.
-9. **DECISION-LOG** — các quyết định đã chốt (D-01..D-11) + open questions còn lại.
+## Tài liệu hiện hành (lean)
+1. **PRD-0001** (v5) — mục đích & yêu cầu: Capture → Store → Review (FR-1..FR-10).
+2. **TRD-0001** (v2) — thiết kế: 1 binary Rust (hook + JSONL tail + query + UI), DuckDB, web UI localhost, LLM tóm tắt tùy chọn.
+3. **DECISION-LOG** — các quyết định đã chốt + pivot lean (D-12/D-13) + open questions.
+
+## Tài liệu tham khảo (full-vision — đã hoãn)
+`module-list`, `feature-catalog`, `PERSONAS`, `PROJECT-CHARTER`, `RISK-REGISTER`, `TEST-STRATEGY` mô tả tầm nhìn org-wide 10 module ban đầu; giữ lại để tham khảo, không phải phạm vi hiện tại.
 
 ## Bắt đầu code
-Phase A (xương sống realtime): collector → backend ingest → ClickHouse → desktop live timeline → auth/RBAC.
-Việc cần verify đầu tiên: thinking-in-JSONL theo version Claude Code (TRD §4.3, §12).
+1. **Capture + Store:** hook receiver (HTTP `:8787`) + JSONL tailer → DuckDB (TRD §9 bước 1).
+2. **Review UI:** timeline session + dashboard token/cost + filter.
+3. (Tùy chọn) LLM tóm tắt/gợi ý, OTEL cost, retention.
 
-## Quyết định
-Đã chốt (xem `DECISION-LOG.md`): backend **Rust**, redaction **tại backend**, **giữ vendor TQ**, default **Anthropic**, subscription **chỉ cho dev**, retention **180 ngày**, **desktop-only**, notify **in-app/email/webhook**.
-Còn mở: gateway tự viết vs LiteLLM; realtime WS vs SSE; verify thinking-in-JSONL.
+**Verify đầu tiên:** thinking-in-JSONL theo version Claude Code (TRD §4.2) — dogfood ngay bằng session đang chạy.
+
+## Quyết định chính (xem `DECISION-LOG.md`)
+Rust 1-binary · DuckDB nhúng · web UI localhost (không Tauri v1) · LLM 1 provider (Anthropic) tùy chọn · zero-token cho capture · retention 180 ngày.
+Còn mở: DuckDB vs SQLite; làm LLM-gợi-ý ngay hay sau; verify thinking-in-JSONL.

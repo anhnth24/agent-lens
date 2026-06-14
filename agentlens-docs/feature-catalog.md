@@ -8,6 +8,8 @@ parents: [MODLIST-0001, PRD-0001]
 
 # Feature Catalog — AgentLens
 
+> ⚠️ **Full-vision (đã hoãn).** 44 feature của phạm vi org-wide. Lean scope hiện tại chỉ giữ Capture/Store/Review (FR-1..FR-10 trong `PRD-0001` v5). Xem `DECISION-LOG.md` (D-12).
+
 > Module → Feature inventory. Mỗi dòng là **Feature** — granularity cho `/fis:plan`. KHÔNG decompose thành User Story ở đây.
 > Phase = thứ tự build (TRD §10). Status: Planned (mặc định).
 

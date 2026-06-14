@@ -8,6 +8,8 @@ parents: [PRD-0001, TRD-0001]
 
 # Risk Register — AgentLens
 
+> ⚠️ **Phần lớn risk dưới đây thuộc full-vision (đã hoãn).** Lean/local-first loại bỏ: R-01 (scope 10 module), R-03 (LLM cost org), R-04/R-12 (data ra vendor — không gửi ra ngoài nếu không bật FR-8), R-05 (onboard nhiều máy), R-08 (ClickHouse volume), R-09 (alert noise), R-13 (subscription org). **Risk còn lại cho lean:** R-02 (thinking-in-JSONL), R-06 (CC đổi schema hook), R-10 (collector chặn agent). Xem `DECISION-LOG.md` (D-12).
+
 > P×I scoring (1–5). Score = P×I. Response: Mitigate / Avoid / Transfer / Accept. Nguồn: PRD-0001 §VIII, TRD-0001 §12.
 
 | ID | Risk | Category | P | I | Score | Response | Hành động | Owner | Status |

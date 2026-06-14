@@ -8,6 +8,8 @@ parents: [PRD-0001]
 
 # PERSONAS — AgentLens
 
+> ⚠️ **Full-vision (đã hoãn).** Lean scope chỉ phục vụ **Developer** (và team nhỏ) — Lead/Admin/Security thuộc full vision. Xem `DECISION-LOG.md` (D-12).
+
 > Tên người là placeholder. Đối tượng phục vụ: org dùng coding agent (Claude Code) nội bộ.
 
 ## 1. Three Amigos (mặc định FIS)

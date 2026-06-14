@@ -8,6 +8,8 @@ parents: [PRD-0001, TRD-0001]
 
 # Test Strategy — AgentLens
 
+> ⚠️ **Full-vision (đã hoãn).** Lean scope chỉ cần test capture/dedup + review (timeline/cost) + (tùy chọn) redaction trước LLM. Xem `PRD-0001` v5.
+
 > Chiến lược test (QA: Priya). Map theo module/FR. Nguồn: PRD-0001, TRD-0001.
 
 ## 1. Cấp độ test

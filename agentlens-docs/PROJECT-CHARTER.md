@@ -8,6 +8,8 @@ parents: [PRD-0001, TRD-0001]
 
 # Project Charter — AgentLens
 
+> ⚠️ **Full-vision (đã hoãn).** Roadmap Phase A→E là cho org-wide. Phạm vi hiện tại **lean/local-first** (cá nhân/team nhỏ) — xem `PRD-0001` v5, `DECISION-LOG.md` (D-12).
+
 > PM coordination artifact (PMP §4.1). Nguồn: PRD-0001, TRD-0001.
 
 ## 1. Mục đích & lý do

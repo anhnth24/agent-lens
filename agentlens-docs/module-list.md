@@ -8,6 +8,8 @@ parents: [PRD-0001]
 
 # Module List — AgentLens
 
+> ⚠️ **Full-vision (đã hoãn).** Mô tả phạm vi org-wide 10 module ban đầu. Phạm vi hiện tại là **lean/local-first** — xem `PRD-0001` v5, `TRD-0001` v2, `DECISION-LOG.md` (D-12).
+
 > System → Module breakdown. Drives feature-catalog + SA feature-spec. Nguồn: PRD-0001 §III.
 
 | Module | Tên | Boundary / Mô tả | FR | Phụ thuộc | PRD § |
