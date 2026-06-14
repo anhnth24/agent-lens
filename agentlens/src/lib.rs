@@ -49,6 +49,13 @@ pub async fn run() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| home.join(".claude").join("projects"));
 
+    // nạp bảng giá từ nguồn ngoài nếu cấu hình (AGENTLENS_PRICING_FILE/_URL)
+    match pricing::refresh_from_source().await {
+        Ok(n) if n > 0 => tracing::info!("Nạp {n} model giá từ nguồn ngoài"),
+        Ok(_) => tracing::info!("Dùng bảng giá built-in (ước tính). Đặt AGENTLENS_PRICING_URL/_FILE để cập nhật."),
+        Err(e) => tracing::warn!("Không nạp được bảng giá ngoài: {e} — dùng built-in"),
+    }
+
     let conn = store::open(&db_path)?;
     store::recompute_costs(&conn)?; // cập nhật cost (kể cả row cũ) theo bảng giá hiện tại
     let (events_tx, _) = tokio::sync::broadcast::channel(64);
@@ -64,6 +71,24 @@ pub async fn run() -> anyhow::Result<()> {
         tokio::spawn(async move { tailer::run(st).await });
     }
 
+    // refresh bảng giá hàng ngày (nếu có nguồn ngoài) rồi tính lại cost
+    {
+        let st = state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+                if let Ok(n) = pricing::refresh_from_source().await {
+                    if n > 0 {
+                        if let Ok(c) = st.db.lock() {
+                            let _ = store::recompute_costs(&c);
+                        }
+                        let _ = st.events_tx.send(());
+                    }
+                }
+            }
+        });
+    }
+
     let app = Router::new()
         .route("/hook", post(hooks::receive))
         .route("/api/totals", get(api::totals))
@@ -71,9 +96,15 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/sessions", get(api::sessions))
         .route("/api/sessions/:id/events", get(api::session_events))
         .route("/api/sessions/:id/prompts", get(api::session_prompts))
+        .route("/api/sessions/:id/models", get(api::session_models))
+        .route("/api/sessions/:id/friction", get(api::session_friction))
         .route("/api/sessions/:id/summarize", post(api::summarize))
+        .route("/api/sessions/:id/tag", post(api::set_tag))
         .route("/api/summary", get(api::summary))
         .route("/api/tools", get(api::tools))
+        .route("/api/search", get(api::search))
+        .route("/api/insights", get(api::list_insights))
+        .route("/api/insights/analyze", post(api::analyze_insights))
         .route("/ws", get(api::ws))
         .route("/", get(ui::index))
         .with_state(state);

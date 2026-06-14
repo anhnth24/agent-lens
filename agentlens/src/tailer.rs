@@ -48,6 +48,22 @@ pub async fn run(state: AppState) {
     }
 }
 
+/// Trích "target" của tool để phân tích rework: file_path (Edit/Write/Read/...) hoặc command (Bash).
+fn extract_target(name: &str, input_json: &str) -> String {
+    let v: serde_json::Value = serde_json::from_str(input_json).unwrap_or(serde_json::Value::Null);
+    let get = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    match name {
+        "Edit" | "Write" | "Read" | "MultiEdit" | "NotebookEdit" => {
+            let p = get("file_path");
+            if p.is_empty() { get("notebook_path") } else { p }
+        }
+        "Bash" => get("command").chars().take(60).collect(),
+        "Task" => get("description"),
+        "Grep" | "Glob" => get("pattern"),
+        _ => String::new(),
+    }
+}
+
 fn process_file(
     state: &AppState,
     path: &Path,
@@ -108,6 +124,7 @@ fn process_file(
                         &tu.id,
                         &tu.name,
                         &entry.ts,
+                        &extract_target(&tu.name, &tu.input),
                     );
                 }
                 for tr in &entry.tool_results {

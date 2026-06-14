@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   transcript_path TEXT DEFAULT '',
   started_at      TEXT DEFAULT '',
   last_activity   TEXT DEFAULT '',
-  summary         TEXT
+  summary         TEXT,
+  tag             TEXT DEFAULT '',
+  outcome         TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS events (
   event_id              TEXT PRIMARY KEY,
@@ -46,10 +48,17 @@ CREATE TABLE IF NOT EXISTS tools (
   ts_use       TEXT,
   ts_result    TEXT,
   duration_ms  INTEGER,
-  is_error     INTEGER DEFAULT 0
+  is_error     INTEGER DEFAULT 0,
+  target       TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_tools_session ON tools(session_id);
 CREATE INDEX IF NOT EXISTS idx_tools_name    ON tools(tool_name);
+CREATE TABLE IF NOT EXISTS insights (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope       TEXT,
+  created_at  TEXT,
+  content     TEXT
+);
 CREATE TABLE IF NOT EXISTS hooks (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id      TEXT,
@@ -63,11 +72,27 @@ CREATE INDEX IF NOT EXISTS idx_events_prompt  ON events(prompt_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_proj  ON sessions(project);
 "#;
 
+/// Mệnh đề thời gian an toàn (from do server sinh từ keyword range, không phải input thô).
+fn since(col: &str, from: Option<&str>, kw: &str) -> String {
+    match from {
+        Some(f) if !f.is_empty() => format!(" {kw} {col} >= '{f}'"),
+        _ => String::new(),
+    }
+}
+
 pub fn open(path: &std::path::Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.execute_batch(SCHEMA)?;
+    // migrate cột mới cho DB cũ (bỏ qua nếu đã có)
+    for stmt in [
+        "ALTER TABLE tools ADD COLUMN target TEXT DEFAULT ''",
+        "ALTER TABLE sessions ADD COLUMN tag TEXT DEFAULT ''",
+        "ALTER TABLE sessions ADD COLUMN outcome TEXT DEFAULT ''",
+    ] {
+        let _ = conn.execute(stmt, []);
+    }
     Ok(conn)
 }
 
@@ -161,12 +186,146 @@ pub fn insert_tool_use(
     id: &str,
     name: &str,
     ts_use: &str,
+    target: &str,
 ) -> Result<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO tools(tool_use_id,session_id,prompt_id,tool_name,ts_use) VALUES(?1,?2,?3,?4,?5)",
-        params![id, session_id, prompt_id, name, ts_use],
+        "INSERT OR IGNORE INTO tools(tool_use_id,session_id,prompt_id,tool_name,ts_use,target) VALUES(?1,?2,?3,?4,?5,?6)",
+        params![id, session_id, prompt_id, name, ts_use, target],
     )?;
     Ok(())
+}
+
+/// Tìm kiếm substring (case-insensitive) trong text/thinking/tool_input/tool_result.
+pub fn search(conn: &Connection, q: &str, project: Option<&str>, limit: i64) -> Result<Value> {
+    let like = format!("%{}%", q.replace('%', "").replace('_', ""));
+    let proj_clause = if project.is_some() {
+        "AND s.project = ?3"
+    } else {
+        ""
+    };
+    let sql = format!(
+        r#"SELECT e.session_id, s.project, e.ts, e.role, e.tool_name,
+                  COALESCE(NULLIF(e.text,''), NULLIF(e.thinking,''), NULLIF(e.tool_input,''), e.tool_result, '')
+           FROM events e JOIN sessions s ON s.session_id = e.session_id
+           WHERE (e.text LIKE ?1 OR e.thinking LIKE ?1 OR e.tool_input LIKE ?1 OR e.tool_result LIKE ?1)
+                 {proj_clause}
+           ORDER BY e.ts DESC LIMIT ?2"#
+    );
+    let map = |r: &rusqlite::Row| {
+        let snip: String = r.get(5)?;
+        Ok(json!({
+            "session_id": r.get::<_, String>(0)?,
+            "project": r.get::<_, Option<String>>(1)?,
+            "ts": r.get::<_, Option<String>>(2)?,
+            "role": r.get::<_, Option<String>>(3)?,
+            "tool_name": r.get::<_, Option<String>>(4)?,
+            "snippet": snip.chars().take(220).collect::<String>(),
+        }))
+    };
+    let out: Vec<Value> = match project {
+        Some(p) => {
+            let mut stmt = conn.prepare(&sql)?;
+            let v = stmt.query_map(params![like, limit, p], map)?.collect::<rusqlite::Result<_>>()?;
+            v
+        }
+        None => {
+            let mut stmt = conn.prepare(&sql)?;
+            let v = stmt.query_map(params![like, limit], map)?.collect::<rusqlite::Result<_>>()?;
+            v
+        }
+    };
+    Ok(Value::Array(out))
+}
+
+/// Friction/loop detection cho 1 session: rework file, lỗi tool, tool chậm.
+pub fn friction(conn: &Connection, session_id: &str) -> Result<Value> {
+    let mut findings: Vec<Value> = Vec::new();
+
+    // 1) rework: file bị Edit/Write nhiều lần
+    {
+        let mut stmt = conn.prepare(
+            r#"SELECT target, COUNT(*) c FROM tools
+               WHERE session_id=?1 AND tool_name IN ('Edit','Write','MultiEdit','NotebookEdit')
+                 AND target<>'' GROUP BY target HAVING c>=4 ORDER BY c DESC LIMIT 10"#,
+        )?;
+        let rows = stmt.query_map(params![session_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (target, c) = row?;
+            findings.push(json!({
+                "kind": "rework",
+                "severity": if c >= 8 { "high" } else { "med" },
+                "text": format!("File sửa {} lần: {}", c, target),
+            }));
+        }
+    }
+    // 2) tool lỗi nhiều
+    {
+        let mut stmt = conn.prepare(
+            r#"SELECT tool_name, COUNT(*) total, COALESCE(SUM(is_error),0) err FROM tools
+               WHERE session_id=?1 GROUP BY tool_name HAVING err>0 ORDER BY err DESC"#,
+        )?;
+        let rows = stmt.query_map(params![session_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+        })?;
+        for row in rows {
+            let (tool, total, err) = row?;
+            findings.push(json!({
+                "kind": "error",
+                "severity": if err as f64 / total.max(1) as f64 >= 0.25 { "high" } else { "med" },
+                "text": format!("{}: {}/{} lần lỗi", tool, err, total),
+            }));
+        }
+    }
+    // 3) tool chậm bất thường (>30s)
+    {
+        let mut stmt = conn.prepare(
+            r#"SELECT tool_name, target, duration_ms FROM tools
+               WHERE session_id=?1 AND duration_ms>30000 ORDER BY duration_ms DESC LIMIT 5"#,
+        )?;
+        let rows = stmt.query_map(params![session_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+        })?;
+        for row in rows {
+            let (tool, target, ms) = row?;
+            findings.push(json!({
+                "kind": "slow",
+                "severity": "low",
+                "text": format!("{} chậm {}s{}", tool, ms / 1000, if target.is_empty() { String::new() } else { format!(" ({})", target) }),
+            }));
+        }
+    }
+    Ok(Value::Array(findings))
+}
+
+pub fn set_tag(conn: &Connection, session_id: &str, tag: &str, outcome: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE sessions SET tag=?2, outcome=?3 WHERE session_id=?1",
+        params![session_id, tag, outcome],
+    )?;
+    Ok(())
+}
+
+pub fn insert_insight(conn: &Connection, scope: &str, content: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO insights(scope,created_at,content) VALUES(?1,?2,?3)",
+        params![scope, chrono::Utc::now().to_rfc3339(), content],
+    )?;
+    Ok(())
+}
+
+pub fn list_insights(conn: &Connection, limit: i64) -> Result<Value> {
+    let mut stmt =
+        conn.prepare("SELECT scope,created_at,content FROM insights ORDER BY id DESC LIMIT ?1")?;
+    let rows = stmt.query_map(params![limit], |r| {
+        Ok(json!({
+            "scope": r.get::<_, Option<String>>(0)?,
+            "created_at": r.get::<_, Option<String>>(1)?,
+            "content": r.get::<_, Option<String>>(2)?,
+        }))
+    })?;
+    Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
 }
 
 /// Hoàn tất tool khi có tool_result: set is_error + ts_result + duration (ms).
@@ -217,8 +376,8 @@ pub fn insert_hook(
 }
 
 /// Repo/project list + tổng token (in/out/cached) cho UI "xem session theo repo".
-pub fn projects(conn: &Connection) -> Result<Value> {
-    let mut stmt = conn.prepare(
+pub fn projects(conn: &Connection, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
         r#"SELECT s.project,
                   COUNT(DISTINCT s.session_id) AS sessions,
                   COALESCE(SUM(e.input_tokens),0),
@@ -228,10 +387,13 @@ pub fn projects(conn: &Connection) -> Result<Value> {
                   COALESCE(SUM(e.cost_usd),0),
                   MIN(NULLIF(s.started_at,'')),
                   MAX(NULLIF(s.last_activity,''))
-           FROM sessions s LEFT JOIN events e ON e.session_id = s.session_id
+           FROM sessions s JOIN events e ON e.session_id = s.session_id
+           WHERE 1=1{}
            GROUP BY s.project
            ORDER BY MAX(NULLIF(s.last_activity,'')) DESC"#,
-    )?;
+        since("e.ts", from, "AND")
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |r| {
         Ok(json!({
             "project": r.get::<_, Option<String>>(0)?,
@@ -248,15 +410,17 @@ pub fn projects(conn: &Connection) -> Result<Value> {
     Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
 }
 
-/// Sessions (lọc theo project nếu có) kèm tổng token mỗi session.
-pub fn sessions(conn: &Connection, project: Option<&str>) -> Result<Value> {
+/// Sessions (lọc theo project + thời gian nếu có) kèm tổng token mỗi session.
+pub fn sessions(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let time_c = since("s.last_activity", from, "AND");
     let base = r#"SELECT s.session_id, s.project, s.git_branch, s.started_at, s.last_activity,
                          COALESCE(SUM(e.input_tokens),0),
                          COALESCE(SUM(e.output_tokens),0),
                          COALESCE(SUM(e.cache_read_tokens),0),
                          COALESCE(SUM(e.cache_creation_tokens),0),
                          COALESCE(SUM(e.cost_usd),0),
-                         COUNT(e.event_id)
+                         COUNT(e.event_id),
+                         COALESCE(s.tag,''), COALESCE(s.outcome,'')
                   FROM sessions s LEFT JOIN events e ON e.session_id = s.session_id"#;
     let tail = " GROUP BY s.session_id ORDER BY s.last_activity DESC";
     let map = |r: &rusqlite::Row| {
@@ -272,17 +436,19 @@ pub fn sessions(conn: &Connection, project: Option<&str>) -> Result<Value> {
             "cache_creation_tokens": r.get::<_, i64>(8)?,
             "cost_usd": r.get::<_, f64>(9)?,
             "events": r.get::<_, i64>(10)?,
+            "tag": r.get::<_, String>(11)?,
+            "outcome": r.get::<_, String>(12)?,
         }))
     };
     let out: Vec<Value> = match project {
         Some(p) => {
-            let sql = format!("{base} WHERE s.project = ?1{tail}");
+            let sql = format!("{base} WHERE s.project = ?1{time_c}{tail}");
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![p], map)?.collect::<rusqlite::Result<_>>()?;
             rows
         }
         None => {
-            let sql = format!("{base}{tail}");
+            let sql = format!("{base} WHERE 1=1{time_c}{tail}");
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map([], map)?.collect::<rusqlite::Result<_>>()?;
             rows
@@ -320,8 +486,34 @@ pub fn session_events(conn: &Connection, session_id: &str) -> Result<Value> {
     Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
 }
 
+/// Breakdown theo model TRONG 1 session (khi session đổi model giữa chừng).
+pub fn session_models(conn: &Connection, session_id: &str) -> Result<Value> {
+    let mut stmt = conn.prepare(
+        r#"SELECT COALESCE(NULLIF(model,''),'(none)'),
+                  COUNT(*),
+                  COALESCE(SUM(input_tokens),0),
+                  COALESCE(SUM(output_tokens),0),
+                  COALESCE(SUM(cache_read_tokens),0),
+                  COALESCE(SUM(cost_usd),0)
+           FROM events WHERE session_id=?1
+           GROUP BY COALESCE(NULLIF(model,''),'(none)')
+           ORDER BY SUM(input_tokens)+SUM(output_tokens) DESC"#,
+    )?;
+    let rows = stmt.query_map(params![session_id], |r| {
+        Ok(json!({
+            "model": r.get::<_, String>(0)?,
+            "events": r.get::<_, i64>(1)?,
+            "input_tokens": r.get::<_, i64>(2)?,
+            "output_tokens": r.get::<_, i64>(3)?,
+            "cache_read_tokens": r.get::<_, i64>(4)?,
+            "cost_usd": r.get::<_, f64>(5)?,
+        }))
+    })?;
+    Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
+}
+
 /// Thống kê token in/out/cached theo nhóm: project | day | model.
-pub fn summary(conn: &Connection, group_by: &str) -> Result<Value> {
+pub fn summary(conn: &Connection, group_by: &str, from: Option<&str>) -> Result<Value> {
     let (label_expr, join, where_c, group, order): (&str, &str, &str, &str, &str) = match group_by {
         "day" => ("substr(e.ts,1,10)", "", "WHERE e.ts<>''", "1", "1 DESC"),
         "model" => (
@@ -347,8 +539,9 @@ pub fn summary(conn: &Connection, group_by: &str) -> Result<Value> {
                   COALESCE(SUM(e.cache_creation_tokens),0) AS cache_creation_tokens,
                   COALESCE(SUM(e.cost_usd),0)              AS cost_usd,
                   (COALESCE(SUM(e.input_tokens),0)+COALESCE(SUM(e.output_tokens),0)) AS in_out
-           FROM events e {join} {where_c}
-           GROUP BY {group} ORDER BY {order}"#
+           FROM events e {join} {where_c}{time_c}
+           GROUP BY {group} ORDER BY {order}"#,
+        time_c = since("e.ts", from, if where_c.is_empty() { "WHERE" } else { "AND" })
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |r| {
@@ -372,17 +565,21 @@ pub fn set_summary(conn: &Connection, session_id: &str, summary: &str) -> Result
     Ok(())
 }
 
-/// Tổng toàn cục (header UI).
-pub fn totals(conn: &Connection) -> Result<Value> {
-    conn.query_row(
+/// Tổng toàn cục (header UI), lọc theo thời gian nếu có.
+pub fn totals(conn: &Connection, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
         r#"SELECT
-             (SELECT COUNT(*) FROM sessions),
+             COUNT(DISTINCT session_id),
              COALESCE(SUM(input_tokens),0),
              COALESCE(SUM(output_tokens),0),
              COALESCE(SUM(cache_read_tokens),0),
              COALESCE(SUM(cache_creation_tokens),0),
              COALESCE(SUM(cost_usd),0)
-           FROM events"#,
+           FROM events WHERE 1=1{}"#,
+        since("ts", from, "AND")
+    );
+    conn.query_row(
+        &sql,
         [],
         |r| {
             Ok(json!({
@@ -398,8 +595,9 @@ pub fn totals(conn: &Connection) -> Result<Value> {
     .map_err(Into::into)
 }
 
-/// Phân tích tool: tần suất, lỗi, thời lượng (lọc theo project nếu có).
-pub fn tool_stats(conn: &Connection, project: Option<&str>) -> Result<Value> {
+/// Phân tích tool: tần suất, lỗi, thời lượng (lọc theo project + thời gian nếu có).
+pub fn tool_stats(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let time_c = since("t.ts_use", from, "AND");
     let base = r#"SELECT t.tool_name, COUNT(*), COALESCE(SUM(t.is_error),0),
                          COALESCE(AVG(t.duration_ms),0), COALESCE(MAX(t.duration_ms),0)
                   FROM tools t JOIN sessions s ON s.session_id = t.session_id"#;
@@ -418,12 +616,12 @@ pub fn tool_stats(conn: &Connection, project: Option<&str>) -> Result<Value> {
     };
     let out: Vec<Value> = match project {
         Some(p) => {
-            let mut stmt = conn.prepare(&format!("{base} WHERE s.project = ?1{tail}"))?;
+            let mut stmt = conn.prepare(&format!("{base} WHERE s.project = ?1{time_c}{tail}"))?;
             let v = stmt.query_map(params![p], map)?.collect::<rusqlite::Result<_>>()?;
             v
         }
         None => {
-            let mut stmt = conn.prepare(&format!("{base}{tail}"))?;
+            let mut stmt = conn.prepare(&format!("{base} WHERE 1=1{time_c}{tail}"))?;
             let v = stmt.query_map([], map)?.collect::<rusqlite::Result<_>>()?;
             v
         }

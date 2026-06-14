@@ -8,6 +8,7 @@ use serde_json::Value;
 pub struct ToolUse {
     pub id: String,
     pub name: String,
+    pub input: String, // JSON input (để trích target: file_path / command)
 }
 
 #[derive(Debug, Clone)]
@@ -125,13 +126,15 @@ pub fn parse(line: &str) -> Option<Entry> {
                             if !name.is_empty() {
                                 tools.push(name.to_string());
                             }
-                            if let Some(inp) = b.get("input") {
-                                tool_inputs.push(inp.clone());
+                            let input_json = b.get("input").cloned().unwrap_or(Value::Null);
+                            if !input_json.is_null() {
+                                tool_inputs.push(input_json.clone());
                             }
                             if let Some(id) = b.get("id").and_then(|x| x.as_str()) {
                                 e.tool_uses.push(ToolUse {
                                     id: id.to_string(),
                                     name: name.to_string(),
+                                    input: input_json.to_string(),
                                 });
                             }
                         }

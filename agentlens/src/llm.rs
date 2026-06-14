@@ -51,30 +51,34 @@ pub fn is_enabled() -> bool {
     std::env::var("ANTHROPIC_API_KEY").map(|k| !k.is_empty()).unwrap_or(false)
 }
 
-/// Gọi Anthropic Messages API, trả text tóm tắt.
+/// Tóm tắt 1 session + gợi ý cải thiện workflow.
 pub async fn summarize(session_brief: &str) -> Result<String> {
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .map_err(|_| anyhow!("chưa đặt ANTHROPIC_API_KEY — FR-8 tắt"))?;
-    let model = std::env::var("AGENTLENS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
-
-    let mut content = redact(session_brief);
-    if content.len() > MAX_INPUT_CHARS {
-        content.truncate(MAX_INPUT_CHARS);
-        content.push_str("\n…(đã cắt bớt)");
-    }
-
     let prompt = format!(
         "Đây là log rút gọn của một session Claude Code (đã ẩn secret). \
 Hãy trả lời NGẮN GỌN bằng tiếng Việt:\n\
 1) Session này làm gì (mục tiêu + kết quả).\n\
 2) Các tool/hành động dùng nhiều nhất.\n\
-3) 3–5 gợi ý cải thiện workflow/prompt/skill/hook.\n\n=== LOG ===\n{content}"
+3) 3–5 gợi ý cải thiện workflow/prompt/skill/hook.\n\n=== LOG ===\n{session_brief}"
     );
+    ask(&prompt).await
+}
+
+/// Gọi Anthropic Messages API với 1 prompt (redact + cắt bớt trước khi gửi).
+pub async fn ask(prompt: &str) -> Result<String> {
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .map_err(|_| anyhow!("chưa đặt ANTHROPIC_API_KEY — LLM tắt"))?;
+    let model = std::env::var("AGENTLENS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+
+    let mut content = redact(prompt);
+    if content.len() > MAX_INPUT_CHARS {
+        content.truncate(MAX_INPUT_CHARS);
+        content.push_str("\n…(đã cắt bớt)");
+    }
 
     let body = json!({
         "model": model,
         "max_tokens": 1024,
-        "messages": [{ "role": "user", "content": prompt }]
+        "messages": [{ "role": "user", "content": content }]
     });
 
     let client = reqwest::Client::new();

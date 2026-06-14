@@ -62,6 +62,13 @@
   .bar { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; }
   .barfill { width:22px; background:linear-gradient(var(--accent),#1f6feb); border-radius:3px 3px 0 0; }
   .barlbl { font-size:10px; color:var(--muted); margin-top:4px; }
+  .toolbar { display:flex; gap:14px; align-items:center; padding:8px 18px; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:58px; z-index:4; }
+  .ranges button { background:var(--panel2); color:var(--muted); border:1px solid var(--border); border-radius:6px; padding:5px 11px; cursor:pointer; margin-right:4px; }
+  .ranges button.active { border-color:var(--accent); color:var(--accent); }
+  #search { flex:1; max-width:520px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:7px 12px; color:var(--fg); }
+  .finding { padding:7px 10px; border-radius:6px; margin:5px 0; border-left:3px solid var(--border); background:var(--panel); }
+  .sev-high { border-left-color:#f85149; } .sev-med { border-left-color:var(--out); } .sev-low { border-left-color:var(--muted); }
+  .taginput { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:5px 9px; color:var(--fg); margin-right:6px; }
 </style>
 </head>
 <body>
@@ -69,6 +76,17 @@
   <h1>AgentLens <small>· Claude Code sessions</small></h1>
   <div class="totals" id="totals"></div>
 </header>
+<div class="toolbar">
+  <div class="ranges" id="ranges">
+    <button data-r="today" onclick="setRange('today',this)">Hôm nay</button>
+    <button data-r="7d" onclick="setRange('7d',this)">7 ngày</button>
+    <button data-r="30d" onclick="setRange('30d',this)">30 ngày</button>
+    <button data-r="90d" onclick="setRange('90d',this)">90 ngày</button>
+    <button data-r="all" class="active" onclick="setRange('all',this)">Tất cả</button>
+  </div>
+  <input id="search" placeholder="🔍 Tìm trong prompt / thinking / tool… (Enter)" onkeydown="if(event.key==='Enter')doSearch()" />
+  <button class="tab" onclick="openInsights()">💡 Insight (LLM)</button>
+</div>
 <div class="layout">
   <aside>
     <h2>Repos</h2>
@@ -85,7 +103,14 @@ const cacheHit = o => { const d=(o.input_tokens||0)+(o.cache_read_tokens||0)+(o.
 const shortId = s => (s||'').slice(0,8);
 const tstr = s => s ? new Date(s).toLocaleString() : '—';
 const esc = s => (s??'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-let activeRepo = null, activeSession = null;
+let activeRepo = null, activeSession = null, range = 'all';
+const rq = () => 'range='+range;
+function setRange(r, btn){
+  range = r;
+  document.querySelectorAll('#ranges button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  loadTotals(); selectRepo(activeRepo);
+}
 
 async function j(url){ const r = await fetch(url); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 
@@ -97,7 +122,7 @@ function tokBadges(o){
 }
 
 async function loadTotals(){
-  const t = await j('/api/totals');
+  const t = await j('/api/totals?'+rq());
   document.getElementById('totals').innerHTML = `
     <div class="stat"><div class="k">Sessions</div><div class="v">${fmt(t.sessions)}</div></div>
     <div class="stat"><div class="k">Token in</div><div class="v tin">${fmt(t.input_tokens)}</div></div>
@@ -108,7 +133,7 @@ async function loadTotals(){
 }
 
 async function loadRepos(){
-  const ps = await j('/api/projects');
+  const ps = await j('/api/projects?'+rq());
   const el = document.getElementById('repos');
   let html = `<div class="repo ${activeRepo===null?'active':''}" onclick="selectRepo(null)">
       <div class="name">Tất cả repo</div><div class="meta">${ps.length} repo</div></div>`;
@@ -125,7 +150,7 @@ async function loadRepos(){
 async function selectRepo(project){
   activeRepo = project; activeSession = null;
   await loadRepos();
-  const q = project ? ('?project='+encodeURIComponent(project)) : '';
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/sessions'+q);
   const title = project===null ? 'Tất cả repo' : esc(project||'(không rõ)');
   let html = `<div class="crumbs"><a onclick="selectRepo(null)">Repos</a> / <b>${title}</b></div>`;
@@ -153,7 +178,7 @@ async function selectRepo(project){
 
 async function loadTrends(){
   try {
-    const d = await j('/api/summary?group_by=day');
+    const d = await j('/api/summary?group_by=day&'+rq());
     if(d.length<2){ document.getElementById('trends').innerHTML=''; return; }
     const max = Math.max(...d.map(x=>x.input_tokens+x.output_tokens),1);
     let bars = d.map(x=>{
@@ -167,7 +192,7 @@ async function loadTrends(){
 }
 
 async function loadTools(project){
-  const q = project ? ('?project='+encodeURIComponent(project)) : '';
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/tools'+q);
   if(!rows.length){ document.getElementById('toolsPanel').innerHTML=''; return; }
   let html = `<div class="lbl" style="margin-top:20px">Tool & error analytics</div>
@@ -189,14 +214,44 @@ async function loadTools(project){
 
 async function openSession(id){
   activeSession = id;
-  const [evs, prompts] = await Promise.all([
-    j('/api/sessions/'+encodeURIComponent(id)+'/events'),
-    j('/api/sessions/'+encodeURIComponent(id)+'/prompts').catch(()=>[])
+  const enc = encodeURIComponent(id);
+  const [evs, prompts, models, fric, sess] = await Promise.all([
+    j('/api/sessions/'+enc+'/events'),
+    j('/api/sessions/'+enc+'/prompts').catch(()=>[]),
+    j('/api/sessions/'+enc+'/models').catch(()=>[]),
+    j('/api/sessions/'+enc+'/friction').catch(()=>[]),
+    j('/api/sessions?range=all').catch(()=>[])
   ]);
+  const meta = (sess||[]).find(s=>s.session_id===id) || {};
   const back = activeRepo===null ? 'selectRepo(null)' : `selectRepo(${JSON.stringify(activeRepo)})`;
   let html = `<div class="crumbs"><a onclick="${back}">← Sessions</a> / <b class="mono">${esc(id)}</b>
       <button class="tab" style="float:right" onclick='summarize(${JSON.stringify(id)},event)'>✨ Tóm tắt (LLM)</button></div>
       <div id="summaryBox"></div>`;
+  // tag & outcome
+  html += `<div style="margin:4px 0 10px">
+      <input class="taginput" id="tagIn" placeholder="tag (vd: bugfix, feature)" value="${esc(meta.tag||'')}">
+      <select class="taginput" id="outIn">
+        <option value="">— outcome —</option>
+        ${['success','partial','fail'].map(o=>`<option ${meta.outcome===o?'selected':''}>${o}</option>`).join('')}
+      </select>
+      <button class="tab" id="tagSave" onclick='saveTag(${JSON.stringify(id)})'>Lưu</button></div>`;
+  // breakdown theo model (đổi model giữa session)
+  if(models.length){
+    html += `<div class="lbl">Theo model${models.length>1?' — session này dùng nhiều model':''}</div>
+      <table><thead><tr><th>Model</th><th class="num">events</th><th class="num">in</th><th class="num">out</th><th class="num">cached</th><th class="num">cost</th></tr></thead><tbody>`;
+    for(const m of models){
+      html += `<tr style="cursor:default"><td><span class="pill">${esc(m.model)}</span></td>
+        <td class="num">${fmt(m.events)}</td><td class="num tin">${fmt(m.input_tokens)}</td>
+        <td class="num tout">${fmt(m.output_tokens)}</td><td class="num tcache">${fmt(m.cache_read_tokens)}</td>
+        <td class="num" style="color:#3fb950">${money(m.cost_usd)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+  // friction / loop
+  if(fric.length){
+    html += `<div class="lbl" style="margin-top:14px">Friction / loop</div>`;
+    for(const f of fric) html += `<div class="finding sev-${f.severity}">${esc(f.text)}</div>`;
+  }
   // breakdown theo prompt
   if(prompts.length){
     html += `<div class="lbl">Breakdown theo prompt (${prompts.length})</div>
@@ -252,6 +307,59 @@ async function summarize(id, ev){
     box.innerHTML = `<div class="ev open think"><div class="head"><span class="role">✨ Tóm tắt & gợi ý</span></div>
        <div class="body"><pre>${esc(d.summary)}</pre></div></div>`;
   } catch(e){ box.innerHTML = `<div class="ev open"><div class="body"><pre>${esc(e.message)}</pre></div></div>`; }
+}
+
+async function doSearch(){
+  const term = document.getElementById('search').value.trim();
+  if(!term){ selectRepo(activeRepo); return; }
+  activeSession = null;
+  const q = '?q='+encodeURIComponent(term)+'&'+rq()+(activeRepo?('&project='+encodeURIComponent(activeRepo)):'');
+  const rows = await j('/api/search'+q);
+  let html = `<div class="crumbs">Tìm "<b>${esc(term)}</b>" — ${rows.length} kết quả</div>`;
+  if(!rows.length) html += `<div class="empty">Không có kết quả.</div>`;
+  for(const r of rows){
+    html += `<div class="ev open" style="cursor:pointer" onclick='openSession(${JSON.stringify(r.session_id)})'>
+      <div class="head"><span class="role role-${r.role||''}">${esc(r.role||'')}</span>
+        ${r.tool_name?`<span class="pill">🔧 ${esc(r.tool_name)}</span>`:''}
+        <span class="time">${tstr(r.ts)}</span><span class="pill">${esc(r.project||'')}</span>
+        <span class="mono toks-mini">${shortId(r.session_id)}</span></div>
+      <div class="body"><pre>${esc(r.snippet)}</pre></div></div>`;
+  }
+  document.getElementById('main').innerHTML = html;
+}
+
+async function openInsights(){
+  activeSession = null;
+  const list = await j('/api/insights').catch(()=>[]);
+  const scope = activeRepo ? esc(activeRepo) : 'tất cả repo';
+  let html = `<div class="crumbs">💡 Cross-session insight — phạm vi <b>${scope}</b>
+     <button class="tab" style="float:right" onclick="runAnalyze()">⚙ Phân tích ngay (LLM)</button></div>
+     <div id="analyzeBox"></div>`;
+  if(list.length){
+    html += `<div class="lbl">Insight đã lưu</div>`;
+    for(const it of list){
+      html += `<div class="ev open think"><div class="head"><span class="role">${esc(it.scope||'')}</span><span class="time">${tstr(it.created_at)}</span></div>
+        <div class="body"><pre>${esc(it.content)}</pre></div></div>`;
+    }
+  } else html += `<div class="empty">Chưa có insight. Bấm "Phân tích ngay" (cần ANTHROPIC_API_KEY).</div>`;
+  document.getElementById('main').innerHTML = html;
+}
+async function runAnalyze(){
+  const box = document.getElementById('analyzeBox');
+  box.innerHTML = `<div class="ev open"><div class="body"><div class="toks-mini">Đang phân tích bằng LLM…</div></div></div>`;
+  const q = activeRepo ? ('?project='+encodeURIComponent(activeRepo)) : '';
+  try {
+    const r = await fetch('/api/insights/analyze'+q, {method:'POST'});
+    const t = await r.text();
+    if(!r.ok){ box.innerHTML = `<div class="ev open think"><div class="body"><pre>${esc(t)}</pre></div></div>`; return; }
+    const d = JSON.parse(t);
+    box.innerHTML = `<div class="ev open think"><div class="head"><span class="role">💡 ${esc(d.scope)}</span></div><div class="body"><pre>${esc(d.content)}</pre></div></div>`;
+  } catch(e){ box.innerHTML = `<div class="ev open"><div class="body"><pre>${esc(e.message)}</pre></div></div>`; }
+}
+async function saveTag(id){
+  const tag = document.getElementById('tagIn').value, outcome = document.getElementById('outIn').value;
+  await fetch('/api/sessions/'+encodeURIComponent(id)+'/tag', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({tag, outcome})});
+  const btn = document.getElementById('tagSave'); if(btn){ btn.textContent='✓ Đã lưu'; setTimeout(()=>btn.textContent='Lưu',1500); }
 }
 
 let refreshTimer = null;
