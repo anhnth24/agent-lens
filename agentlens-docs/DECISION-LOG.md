@@ -37,12 +37,11 @@ parents: [PRD-0001, TRD-0001, RISK-0001]
 | # | Quyết định | Hệ quả |
 |---|---|---|
 | **D-12** | **Thu hẹp về lean / local-first** cho cá nhân–team nhỏ: chỉ **Capture → Store → Review** (+ LLM tóm tắt tùy chọn). Mục đích thật: ghi session Claude Code (hook/thinking/prompt/cost) để review & cải tiến workflow. | Hoãn toàn bộ org-wide: backend tập trung, RBAC/SSO, gateway đa vendor, vendor TQ, alerting, API/webhook, onboarding/MDM, FinOps, multi-agent adapter. |
-| **D-13** | Stack lean: **1 binary Rust** (hook + JSONL tail + query + UI server), **DuckDB** nhúng, **web UI localhost** (không Tauri v1), **LLM 1 provider (Anthropic) tùy chọn**. | Thay cho ClickHouse+Postgres+Tauri+gateway. |
+| **D-13** | Stack lean: **1 binary Rust** (hook + JSONL tail + query + UI server), **SQLite** nhúng (WAL), **web UI localhost** (không Tauri v1), **LLM 1 provider (Anthropic) tùy chọn**. | Thay cho ClickHouse+Postgres+Tauri+gateway. SQLite chọn vì đơn giản/ubiquitous, đủ cho cá nhân/team nhỏ. |
 
 **Quyết định cũ bị thay/không còn áp dụng do D-12:** D-02 (redaction-at-backend — local nên chỉ redact khi gửi LLM), D-03 (vendor TQ — bỏ), D-07 (Tauri → web localhost), D-08 (notify — bỏ). Vẫn giữ: D-01 (Rust), D-04 (Anthropic), D-06 (retention 180), D-09/D-10/D-11 (dedup hash, prompt_id, OTEL cost — áp dụng bản local). Chi tiết: `PRD-0001` v5, `TRD-0001` v2.
 
 ## 3. Open questions còn lại (cần verify)
 
 - **[Action — chặn FR-5]** Verify thinking-in-JSONL theo version Claude Code (đầu bước 1, dogfood ngay).
-- **Store:** DuckDB vs SQLite (TRD §3).
 - **FR-8 (LLM gợi ý):** làm ngay hay review thủ công trước rồi thêm sau.

@@ -25,7 +25,7 @@ flowchart LR
   subgraph DevMachine[Máy dev]
     cc[Claude Code]
     app[AgentLens local process - Rust]
-    db[(DuckDB - 1 file)]
+    db[(SQLite - 1 file)]
     ui[Web UI localhost]
     cc -->|hook HTTP :8787| app
     cc -->|tail JSONL| app
@@ -42,7 +42,7 @@ flowchart LR
 | Lớp | Lựa chọn | Ghi chú |
 |---|---|---|
 | Collector + API + UI server | **Rust (axum + tokio)** | 1 binary; nhận hook, tail JSONL, serve UI |
-| Store | **DuckDB (embedded, 1 file)** | analytics token/cost tốt; `[Inference]` *alternative:* SQLite nếu ưu tiên đơn giản |
+| Store | **SQLite (embedded, 1 file)** | đơn giản, ubiquitous; đủ cho cá nhân/team nhỏ. Cost/token tổng hợp bằng SQL aggregate + index |
 | UI | **Web nhẹ** (React/TS hoặc HTML tối giản) phục vụ trên `localhost` | `[Inference]` không cần Tauri ở v1; bọc Tauri sau nếu muốn app desktop |
 | LLM (FR-8, tùy chọn) | 1 provider (Anthropic) qua API key | redact secret trước khi gửi; không cần gateway đa vendor |
 
@@ -71,35 +71,37 @@ flowchart LR
 - Cost tính từ token qua **bảng giá model** (per model). Nếu bật OTEL (FR-4) thì lấy `claude_code.cost.usage` làm cost chuẩn.
 - `[Unverified]` JSONL có lưu **đầy đủ raw thinking** không (tùy version) → verify trước khi làm FR-5; thiếu thì fallback chỉ tool/prompt/usage.
 
-## 5. Data model (DuckDB)
+## 5. Data model (SQLite)
 
 ```sql
 CREATE TABLE events (
-  event_id        VARCHAR PRIMARY KEY,   -- hash ổn định sinh ở app (session+prompt+seq+kind) → idempotent khi tail lại
-  ts              TIMESTAMP,
-  session_id      VARCHAR,
-  prompt_id       VARCHAR,               -- gom theo lượt prompt; suy ra từ chuỗi hook/JSONL
-  project         VARCHAR,
-  event_type      VARCHAR,               -- session_start|user_prompt|pre_tool|post_tool|stop|session_end
-  tool_name       VARCHAR,
+  event_id        TEXT PRIMARY KEY,      -- hash ổn định sinh ở app (session+prompt+seq+kind) → idempotent khi tail lại
+  ts              TEXT,                  -- ISO-8601 UTC
+  session_id      TEXT,
+  prompt_id       TEXT,                  -- gom theo lượt prompt; suy ra từ chuỗi hook/JSONL
+  project         TEXT,
+  event_type      TEXT,                  -- session_start|user_prompt|pre_tool|post_tool|stop|session_end
+  tool_name       TEXT,
   duration_ms     INTEGER,
-  success         BOOLEAN,
-  model           VARCHAR,
+  success         INTEGER,               -- 0/1
+  model           TEXT,
   input_tokens    INTEGER,
   output_tokens   INTEGER,
   cache_read_tokens INTEGER,
-  cost_usd        DOUBLE,
-  thinking        VARCHAR,               -- từ JSONL ([Unverified] theo version)
-  skill_name      VARCHAR,
-  payload         VARCHAR                -- JSON tool_input/response (raw, local)
+  cost_usd        REAL,
+  thinking        TEXT,                  -- từ JSONL ([Unverified] theo version)
+  skill_name      TEXT,
+  payload         TEXT                   -- JSON tool_input/response (raw, local)
 );
--- View tổng hợp cost/token theo session & ngày cho UI
+CREATE INDEX idx_events_session ON events(session_id, ts);
+CREATE INDEX idx_events_ts      ON events(ts);
+-- Tổng hợp cost/token theo session & ngày bằng SQL aggregate cho UI
 ```
-> Local, single-writer → dedup chỉ cần `event_id` hash + `INSERT OR IGNORE`. Không cần ClickHouse/Postgres/RBAC.
+> Local, single-writer → dedup chỉ cần `event_id` hash + `INSERT OR IGNORE`. Bật WAL mode để đọc UI không chặn ghi. Không cần ClickHouse/Postgres/RBAC.
 
 ## 6. Components
-- **Collector** (Rust): `POST /hook` + JSONL tailer → chuẩn hóa event → ghi DuckDB; gom `prompt_id` từ chuỗi hook (`session_id` + thứ tự UserPromptSubmit→…→Stop).
-- **Query/UI server** (Rust/axum): API đọc DuckDB + serve web UI trên `localhost`.
+- **Collector** (Rust): `POST /hook` + JSONL tailer → chuẩn hóa event → ghi SQLite; gom `prompt_id` từ chuỗi hook (`session_id` + thứ tự UserPromptSubmit→…→Stop).
+- **Query/UI server** (Rust/axum): API đọc SQLite + serve web UI trên `localhost`.
 - **Review UI**: Timeline session (prompt→tool→thinking), bảng token/cost theo session/ngày/skill/tool, filter.
 - **LLM summarize** (tùy chọn, FR-8): redact secret/key → gọi 1 provider → lưu tóm tắt + gợi ý.
 
@@ -125,12 +127,12 @@ agentlens/
 ## 9. Thứ tự build
 | Bước | Nội dung | FR |
 |---|---|---|
-| 1. Capture + Store | hook receiver + JSONL tailer + DuckDB | FR-1,2,3 |
+| 1. Capture + Store | hook receiver + JSONL tailer + SQLite | FR-1,2,3 |
 | 2. Review UI | timeline + dashboard cost/token + filter | FR-5,6,7 |
 | 3. (Tùy chọn) | LLM tóm tắt/gợi ý + OTEL cost + retention | FR-4,8,9,10 |
 
 > Verify `[Unverified]` thinking-in-JSONL ngay ở bước 1 (dogfood bằng chính session đang chạy).
 
 ## 10. Quyết định kỹ thuật
-**Đã chốt:** Rust (1 binary), DuckDB embedded, web UI localhost (không Tauri ở v1), LLM tùy chọn 1 provider (Anthropic).
-**Còn mở:** DuckDB vs SQLite; có làm FR-8 ngay không; verify thinking-in-JSONL.
+**Đã chốt:** Rust (1 binary), **SQLite** embedded (WAL), web UI localhost (không Tauri ở v1), LLM tùy chọn 1 provider (Anthropic).
+**Còn mở:** có làm FR-8 ngay không; verify thinking-in-JSONL.

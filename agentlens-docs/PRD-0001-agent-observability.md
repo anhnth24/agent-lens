@@ -110,7 +110,7 @@ Một công cụ **local** ghi lại hoạt động của **Claude Code** trong 
 flowchart TD
   cc([Claude Code: hook / tool / prompt]) --> col[Collector local: HTTP hook + JSONL tail]
   col --> norm[Chuẩn hóa event + gom prompt_id]
-  norm --> db[(Store local: DuckDB)]
+  norm --> db[(Store local: SQLite)]
   db --> ui[UI review]
 ```
 
@@ -122,4 +122,3 @@ Dev mở UI → chọn session/khoảng thời gian → xem timeline + thinking 
 ## VI. Open questions
 - `[Unverified]` Thinking lưu **đầy đủ raw** trong JSONL hay rút gọn theo version Claude Code? → verify thực nghiệm trước khi làm FR-5/thinking.
 - Có cần FR-8 (LLM gợi ý) ngay từ đầu, hay review thủ công trước rồi thêm sau?
-- Store dùng **DuckDB** (analytics tốt) hay **SQLite** (đơn giản)? → xem TRD §3.
