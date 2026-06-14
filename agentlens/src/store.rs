@@ -34,9 +34,22 @@ CREATE TABLE IF NOT EXISTS events (
   cache_read_tokens     INTEGER DEFAULT 0,
   cache_creation_tokens INTEGER DEFAULT 0,
   cost_usd              REAL DEFAULT 0,
+  tool_error            INTEGER DEFAULT 0,
   git_branch            TEXT,
   cwd                   TEXT
 );
+CREATE TABLE IF NOT EXISTS tools (
+  tool_use_id  TEXT PRIMARY KEY,
+  session_id   TEXT,
+  prompt_id    TEXT,
+  tool_name    TEXT,
+  ts_use       TEXT,
+  ts_result    TEXT,
+  duration_ms  INTEGER,
+  is_error     INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tools_session ON tools(session_id);
+CREATE INDEX IF NOT EXISTS idx_tools_name    ON tools(tool_name);
 CREATE TABLE IF NOT EXISTS hooks (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id      TEXT,
@@ -101,12 +114,19 @@ pub fn upsert_session_from_entry(
     )
 }
 
-pub fn insert_event(conn: &Connection, e: &Entry, _project: &str) -> Result<()> {
-    conn.execute(
+pub fn insert_event(conn: &Connection, e: &Entry, _project: &str) -> Result<usize> {
+    let cost = crate::pricing::cost(
+        e.model.as_deref().unwrap_or(""),
+        e.input_tokens,
+        e.output_tokens,
+        e.cache_read_tokens,
+        e.cache_creation_tokens,
+    );
+    let n = conn.execute(
         r#"INSERT OR IGNORE INTO events
            (event_id,session_id,prompt_id,ts,kind,role,text,thinking,tool_name,tool_input,tool_result,
-            model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,cost_usd,git_branch,cwd)
-           VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)"#,
+            model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,cost_usd,tool_error,git_branch,cwd)
+           VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)"#,
         params![
             e.uuid,
             e.session_id,
@@ -124,11 +144,60 @@ pub fn insert_event(conn: &Connection, e: &Entry, _project: &str) -> Result<()> 
             e.output_tokens,
             e.cache_read_tokens,
             e.cache_creation_tokens,
-            0.0_f64,
+            cost,
+            e.tool_error as i64,
             e.git_branch,
             e.cwd,
         ],
     )?;
+    Ok(n)
+}
+
+/// Ghi 1 tool_use (idempotent theo tool_use_id).
+pub fn insert_tool_use(
+    conn: &Connection,
+    session_id: &str,
+    prompt_id: Option<&str>,
+    id: &str,
+    name: &str,
+    ts_use: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO tools(tool_use_id,session_id,prompt_id,tool_name,ts_use) VALUES(?1,?2,?3,?4,?5)",
+        params![id, session_id, prompt_id, name, ts_use],
+    )?;
+    Ok(())
+}
+
+/// Hoàn tất tool khi có tool_result: set is_error + ts_result + duration (ms).
+pub fn complete_tool(conn: &Connection, tool_use_id: &str, ts_result: &str, is_error: bool) -> Result<()> {
+    conn.execute(
+        r#"UPDATE tools
+           SET ts_result = ?2,
+               is_error  = ?3,
+               duration_ms = CAST((julianday(?2) - julianday(ts_use)) * 86400000.0 AS INTEGER)
+           WHERE tool_use_id = ?1"#,
+        params![tool_use_id, ts_result, is_error as i64],
+    )?;
+    Ok(())
+}
+
+/// Tính lại cost cho mọi model (chạy lúc khởi động — cập nhật cả row cũ).
+pub fn recompute_costs(conn: &Connection) -> Result<()> {
+    let models: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT DISTINCT COALESCE(model,'') FROM events")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for m in models {
+        let p = crate::pricing::for_model(&m);
+        conn.execute(
+            r#"UPDATE events SET cost_usd =
+                 (input_tokens*?2 + output_tokens*?3 + cache_read_tokens*?4 + cache_creation_tokens*?5)/1000000.0
+               WHERE COALESCE(model,'') = ?1"#,
+            params![m, p.input, p.output, p.cache_read, p.cache_write],
+        )?;
+    }
     Ok(())
 }
 
@@ -156,6 +225,7 @@ pub fn projects(conn: &Connection) -> Result<Value> {
                   COALESCE(SUM(e.output_tokens),0),
                   COALESCE(SUM(e.cache_read_tokens),0),
                   COALESCE(SUM(e.cache_creation_tokens),0),
+                  COALESCE(SUM(e.cost_usd),0),
                   MIN(NULLIF(s.started_at,'')),
                   MAX(NULLIF(s.last_activity,''))
            FROM sessions s LEFT JOIN events e ON e.session_id = s.session_id
@@ -170,8 +240,9 @@ pub fn projects(conn: &Connection) -> Result<Value> {
             "output_tokens": r.get::<_, i64>(3)?,
             "cache_read_tokens": r.get::<_, i64>(4)?,
             "cache_creation_tokens": r.get::<_, i64>(5)?,
-            "started_at": r.get::<_, Option<String>>(6)?,
-            "last_activity": r.get::<_, Option<String>>(7)?,
+            "cost_usd": r.get::<_, f64>(6)?,
+            "started_at": r.get::<_, Option<String>>(7)?,
+            "last_activity": r.get::<_, Option<String>>(8)?,
         }))
     })?;
     Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
@@ -184,6 +255,7 @@ pub fn sessions(conn: &Connection, project: Option<&str>) -> Result<Value> {
                          COALESCE(SUM(e.output_tokens),0),
                          COALESCE(SUM(e.cache_read_tokens),0),
                          COALESCE(SUM(e.cache_creation_tokens),0),
+                         COALESCE(SUM(e.cost_usd),0),
                          COUNT(e.event_id)
                   FROM sessions s LEFT JOIN events e ON e.session_id = s.session_id"#;
     let tail = " GROUP BY s.session_id ORDER BY s.last_activity DESC";
@@ -198,7 +270,8 @@ pub fn sessions(conn: &Connection, project: Option<&str>) -> Result<Value> {
             "output_tokens": r.get::<_, i64>(6)?,
             "cache_read_tokens": r.get::<_, i64>(7)?,
             "cache_creation_tokens": r.get::<_, i64>(8)?,
-            "events": r.get::<_, i64>(9)?,
+            "cost_usd": r.get::<_, f64>(9)?,
+            "events": r.get::<_, i64>(10)?,
         }))
     };
     let out: Vec<Value> = match project {
@@ -222,7 +295,7 @@ pub fn sessions(conn: &Connection, project: Option<&str>) -> Result<Value> {
 pub fn session_events(conn: &Connection, session_id: &str) -> Result<Value> {
     let mut stmt = conn.prepare(
         r#"SELECT ts,kind,role,text,thinking,tool_name,tool_input,tool_result,model,
-                  input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,prompt_id
+                  input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,prompt_id,tool_error
            FROM events WHERE session_id = ?1 ORDER BY ts, rowid"#,
     )?;
     let rows = stmt.query_map(params![session_id], |r| {
@@ -241,6 +314,7 @@ pub fn session_events(conn: &Connection, session_id: &str) -> Result<Value> {
             "cache_read_tokens": r.get::<_, i64>(11)?,
             "cache_creation_tokens": r.get::<_, i64>(12)?,
             "prompt_id": r.get::<_, Option<String>>(13)?,
+            "tool_error": r.get::<_, i64>(14)? != 0,
         }))
     })?;
     Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
@@ -271,6 +345,7 @@ pub fn summary(conn: &Connection, group_by: &str) -> Result<Value> {
                   COALESCE(SUM(e.output_tokens),0) AS output_tokens,
                   COALESCE(SUM(e.cache_read_tokens),0)     AS cache_read_tokens,
                   COALESCE(SUM(e.cache_creation_tokens),0) AS cache_creation_tokens,
+                  COALESCE(SUM(e.cost_usd),0)              AS cost_usd,
                   (COALESCE(SUM(e.input_tokens),0)+COALESCE(SUM(e.output_tokens),0)) AS in_out
            FROM events e {join} {where_c}
            GROUP BY {group} ORDER BY {order}"#
@@ -283,6 +358,7 @@ pub fn summary(conn: &Connection, group_by: &str) -> Result<Value> {
             "output_tokens": r.get::<_, i64>(2)?,
             "cache_read_tokens": r.get::<_, i64>(3)?,
             "cache_creation_tokens": r.get::<_, i64>(4)?,
+            "cost_usd": r.get::<_, f64>(5)?,
         }))
     })?;
     Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
@@ -304,7 +380,8 @@ pub fn totals(conn: &Connection) -> Result<Value> {
              COALESCE(SUM(input_tokens),0),
              COALESCE(SUM(output_tokens),0),
              COALESCE(SUM(cache_read_tokens),0),
-             COALESCE(SUM(cache_creation_tokens),0)
+             COALESCE(SUM(cache_creation_tokens),0),
+             COALESCE(SUM(cost_usd),0)
            FROM events"#,
         [],
         |r| {
@@ -314,8 +391,76 @@ pub fn totals(conn: &Connection) -> Result<Value> {
                 "output_tokens": r.get::<_, i64>(2)?,
                 "cache_read_tokens": r.get::<_, i64>(3)?,
                 "cache_creation_tokens": r.get::<_, i64>(4)?,
+                "cost_usd": r.get::<_, f64>(5)?,
             }))
         },
     )
     .map_err(Into::into)
+}
+
+/// Phân tích tool: tần suất, lỗi, thời lượng (lọc theo project nếu có).
+pub fn tool_stats(conn: &Connection, project: Option<&str>) -> Result<Value> {
+    let base = r#"SELECT t.tool_name, COUNT(*), COALESCE(SUM(t.is_error),0),
+                         COALESCE(AVG(t.duration_ms),0), COALESCE(MAX(t.duration_ms),0)
+                  FROM tools t JOIN sessions s ON s.session_id = t.session_id"#;
+    let tail = " GROUP BY t.tool_name ORDER BY COUNT(*) DESC";
+    let map = |r: &rusqlite::Row| {
+        let cnt: i64 = r.get(1)?;
+        let err: i64 = r.get(2)?;
+        Ok(json!({
+            "tool": r.get::<_, Option<String>>(0)?,
+            "count": cnt,
+            "errors": err,
+            "error_rate": if cnt > 0 { err as f64 / cnt as f64 } else { 0.0 },
+            "avg_ms": r.get::<_, f64>(3)? as i64,
+            "max_ms": r.get::<_, i64>(4)?,
+        }))
+    };
+    let out: Vec<Value> = match project {
+        Some(p) => {
+            let mut stmt = conn.prepare(&format!("{base} WHERE s.project = ?1{tail}"))?;
+            let v = stmt.query_map(params![p], map)?.collect::<rusqlite::Result<_>>()?;
+            v
+        }
+        None => {
+            let mut stmt = conn.prepare(&format!("{base}{tail}"))?;
+            let v = stmt.query_map([], map)?.collect::<rusqlite::Result<_>>()?;
+            v
+        }
+    };
+    Ok(Value::Array(out))
+}
+
+/// Breakdown theo prompt trong 1 session: turns, token, tool, snippet.
+pub fn prompt_breakdown(conn: &Connection, session_id: &str) -> Result<Value> {
+    let mut stmt = conn.prepare(
+        r#"SELECT ev.prompt_id,
+                  COUNT(*),
+                  COALESCE(SUM(ev.input_tokens),0),
+                  COALESCE(SUM(ev.output_tokens),0),
+                  COALESCE(SUM(ev.cache_read_tokens),0),
+                  COALESCE(SUM(ev.cost_usd),0),
+                  SUM(CASE WHEN ev.tool_name IS NOT NULL AND ev.tool_name<>'' THEN 1 ELSE 0 END),
+                  MIN(ev.ts),
+                  (SELECT e2.text FROM events e2
+                     WHERE e2.session_id = ev.session_id AND e2.prompt_id = ev.prompt_id
+                       AND e2.role='user' AND e2.text<>'' ORDER BY e2.ts LIMIT 1)
+           FROM events ev
+           WHERE ev.session_id = ?1 AND ev.prompt_id IS NOT NULL AND ev.prompt_id <> ''
+           GROUP BY ev.prompt_id ORDER BY MIN(ev.ts)"#,
+    )?;
+    let rows = stmt.query_map(params![session_id], |r| {
+        Ok(json!({
+            "prompt_id": r.get::<_, Option<String>>(0)?,
+            "turns": r.get::<_, i64>(1)?,
+            "input_tokens": r.get::<_, i64>(2)?,
+            "output_tokens": r.get::<_, i64>(3)?,
+            "cache_read_tokens": r.get::<_, i64>(4)?,
+            "cost_usd": r.get::<_, f64>(5)?,
+            "tool_turns": r.get::<_, i64>(6)?,
+            "started_at": r.get::<_, Option<String>>(7)?,
+            "prompt": r.get::<_, Option<String>>(8)?,
+        }))
+    })?;
+    Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
 }

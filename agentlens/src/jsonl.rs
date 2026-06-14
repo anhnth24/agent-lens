@@ -4,6 +4,18 @@
 
 use serde_json::Value;
 
+#[derive(Debug, Clone)]
+pub struct ToolUse {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolResultRef {
+    pub tool_use_id: String,
+    pub is_error: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct Entry {
     pub uuid: String,
@@ -17,6 +29,7 @@ pub struct Entry {
     pub tool_name: Option<String>,
     pub tool_input: Option<String>,
     pub tool_result: Option<String>,
+    pub tool_error: bool, // có tool_result is_error trong dòng (badge timeline)
     pub model: Option<String>,
     pub input_tokens: i64,
     pub output_tokens: i64,
@@ -24,6 +37,8 @@ pub struct Entry {
     pub cache_creation_tokens: i64,
     pub git_branch: Option<String>,
     pub cwd: Option<String>,
+    pub tool_uses: Vec<ToolUse>,            // từng tool_use (để phân tích tool)
+    pub tool_results: Vec<ToolResultRef>,   // từng tool_result (is_error)
 }
 
 fn s(v: &Value, k: &str) -> Option<String> {
@@ -106,16 +121,33 @@ pub fn parse(line: &str) -> Option<Entry> {
                             }
                         }
                         Some("tool_use") => {
-                            if let Some(n) = b.get("name").and_then(|x| x.as_str()) {
-                                tools.push(n.to_string());
+                            let name = b.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                            if !name.is_empty() {
+                                tools.push(name.to_string());
                             }
                             if let Some(inp) = b.get("input") {
                                 tool_inputs.push(inp.clone());
+                            }
+                            if let Some(id) = b.get("id").and_then(|x| x.as_str()) {
+                                e.tool_uses.push(ToolUse {
+                                    id: id.to_string(),
+                                    name: name.to_string(),
+                                });
                             }
                         }
                         Some("tool_result") => {
                             if let Some(c) = b.get("content") {
                                 results.push(block_text(c));
+                            }
+                            let is_err = b.get("is_error").and_then(|x| x.as_bool()).unwrap_or(false);
+                            if is_err {
+                                e.tool_error = true;
+                            }
+                            if let Some(tid) = b.get("tool_use_id").and_then(|x| x.as_str()) {
+                                e.tool_results.push(ToolResultRef {
+                                    tool_use_id: tid.to_string(),
+                                    is_error: is_err,
+                                });
                             }
                         }
                         _ => {}

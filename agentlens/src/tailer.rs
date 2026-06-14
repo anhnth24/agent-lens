@@ -10,6 +10,8 @@ use std::{
 
 pub async fn run(state: AppState) {
     let mut offsets: HashMap<PathBuf, u64> = HashMap::new();
+    // prompt_id gần nhất theo session (chỉ dòng user có promptId) -> gán cho dòng assistant kế tiếp
+    let mut last_prompt: HashMap<String, String> = HashMap::new();
     loop {
         let mut paths: Vec<PathBuf> = Vec::new();
         if state.projects_dir.exists() {
@@ -31,10 +33,16 @@ pub async fn run(state: AppState) {
                 }
             }
         }
+        let mut changed = false;
         for path in paths {
-            if let Err(err) = process_file(&state, &path, &mut offsets) {
-                tracing::warn!("tail {:?}: {err}", path);
+            match process_file(&state, &path, &mut offsets, &mut last_prompt) {
+                Ok(n) if n > 0 => changed = true,
+                Ok(_) => {}
+                Err(err) => tracing::warn!("tail {:?}: {err}", path),
             }
+        }
+        if changed {
+            let _ = state.events_tx.send(()); // báo WS refresh (bỏ qua nếu không có subscriber)
         }
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
@@ -44,7 +52,8 @@ fn process_file(
     state: &AppState,
     path: &Path,
     offsets: &mut HashMap<PathBuf, u64>,
-) -> anyhow::Result<()> {
+    last_prompt: &mut HashMap<String, String>,
+) -> anyhow::Result<usize> {
     let mut f = std::fs::File::open(path)?;
     let len = f.metadata()?.len();
     let mut off = *offsets.get(path).unwrap_or(&0);
@@ -52,7 +61,7 @@ fn process_file(
         off = 0; // file bị rotate/truncate -> đọc lại từ đầu (dedup lo phần trùng)
     }
     if len == off {
-        return Ok(());
+        return Ok(0);
     }
     f.seek(SeekFrom::Start(off))?;
     let mut buf = String::new();
@@ -61,10 +70,11 @@ fn process_file(
     // chỉ xử lý tới newline cuối; phần dòng dở để vòng sau
     let consume_to = match buf.rfind('\n') {
         Some(i) => i + 1,
-        None => return Ok(()), // chưa có dòng hoàn chỉnh
+        None => return Ok(0), // chưa có dòng hoàn chỉnh
     };
     let chunk = &buf[..consume_to];
     let transcript_path = path.to_string_lossy().to_string();
+    let mut inserted = 0usize;
 
     {
         let conn = state.db.lock().unwrap();
@@ -73,14 +83,40 @@ fn process_file(
             if line.is_empty() {
                 continue;
             }
-            if let Some(entry) = jsonl::parse(line) {
+            if let Some(mut entry) = jsonl::parse(line) {
+                // propagate prompt_id: user có promptId -> nhớ; dòng sau (assistant) kế thừa
+                match &entry.prompt_id {
+                    Some(pid) => {
+                        last_prompt.insert(entry.session_id.clone(), pid.clone());
+                    }
+                    None => {
+                        if let Some(pid) = last_prompt.get(&entry.session_id) {
+                            entry.prompt_id = Some(pid.clone());
+                        }
+                    }
+                }
                 let project = repo_name(entry.cwd.as_deref().unwrap_or(""));
                 let _ = store::upsert_session_from_entry(&conn, &entry, &project, &transcript_path);
-                let _ = store::insert_event(&conn, &entry, &project);
+                if let Ok(n) = store::insert_event(&conn, &entry, &project) {
+                    inserted += n;
+                }
+                for tu in &entry.tool_uses {
+                    let _ = store::insert_tool_use(
+                        &conn,
+                        &entry.session_id,
+                        entry.prompt_id.as_deref(),
+                        &tu.id,
+                        &tu.name,
+                        &entry.ts,
+                    );
+                }
+                for tr in &entry.tool_results {
+                    let _ = store::complete_tool(&conn, &tr.tool_use_id, &entry.ts, tr.is_error);
+                }
             }
         }
     }
 
     offsets.insert(path.to_path_buf(), off + consume_to as u64);
-    Ok(())
+    Ok(inserted)
 }

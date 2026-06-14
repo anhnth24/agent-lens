@@ -36,5 +36,6 @@ pub async fn receive(State(state): State<AppState>, Json(v): Json<Value>) -> Sta
             set.insert(PathBuf::from(transcript_path));
         }
     }
+    let _ = state.events_tx.send(()); // báo WS có hoạt động mới
     StatusCode::OK
 }

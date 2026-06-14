@@ -2,8 +2,12 @@
 
 use crate::{llm, store, AppState};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Path, Query, State,
+    },
     http::StatusCode,
+    response::Response,
     Json,
 };
 use serde_json::{json, Value};
@@ -49,6 +53,46 @@ pub async fn summary(
     let group_by = q.get("group_by").map(|s| s.as_str()).unwrap_or("project");
     let conn = state.db.lock().unwrap();
     Ok(Json(store::summary(&conn, group_by).map_err(err)?))
+}
+
+pub async fn tools(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::tool_stats(&conn, project).map_err(err)?))
+}
+
+pub async fn session_prompts(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::prompt_breakdown(&conn, &id).map_err(err)?))
+}
+
+/// WebSocket: đẩy thông báo "update" mỗi khi tailer ghi event mới (live UI).
+pub async fn ws(State(state): State<AppState>, up: WebSocketUpgrade) -> Response {
+    up.on_upgrade(move |socket| handle_ws(socket, state))
+}
+
+async fn handle_ws(mut socket: WebSocket, state: AppState) {
+    let mut rx = state.events_tx.subscribe();
+    loop {
+        tokio::select! {
+            recv = rx.recv() => match recv {
+                Ok(()) => {
+                    if socket.send(Message::Text("update".into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break,
+            },
+            msg = socket.recv() => match msg {
+                Some(Ok(_)) => {}
+                _ => break,
+            },
+        }
+    }
 }
 
 /// Xây log rút gọn từ events để đưa vào LLM.

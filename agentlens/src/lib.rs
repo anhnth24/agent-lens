@@ -5,6 +5,7 @@ mod api;
 mod hooks;
 mod jsonl;
 mod llm;
+mod pricing;
 mod store;
 mod tailer;
 mod ui;
@@ -25,6 +26,8 @@ pub struct AppState {
     pub db: Arc<Mutex<rusqlite::Connection>>,
     pub extra_paths: Arc<Mutex<HashSet<PathBuf>>>,
     pub projects_dir: PathBuf,
+    /// Báo cho client WebSocket khi có event mới (live update).
+    pub events_tx: tokio::sync::broadcast::Sender<()>,
 }
 
 /// Địa chỉ bind mặc định (API + UI + /hook).
@@ -47,10 +50,13 @@ pub async fn run() -> anyhow::Result<()> {
         .unwrap_or_else(|_| home.join(".claude").join("projects"));
 
     let conn = store::open(&db_path)?;
+    store::recompute_costs(&conn)?; // cập nhật cost (kể cả row cũ) theo bảng giá hiện tại
+    let (events_tx, _) = tokio::sync::broadcast::channel(64);
     let state = AppState {
         db: Arc::new(Mutex::new(conn)),
         extra_paths: Arc::new(Mutex::new(HashSet::new())),
         projects_dir: projects_dir.clone(),
+        events_tx,
     };
 
     {
@@ -64,8 +70,11 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/projects", get(api::projects))
         .route("/api/sessions", get(api::sessions))
         .route("/api/sessions/:id/events", get(api::session_events))
+        .route("/api/sessions/:id/prompts", get(api::session_prompts))
         .route("/api/sessions/:id/summarize", post(api::summarize))
         .route("/api/summary", get(api::summary))
+        .route("/api/tools", get(api::tools))
+        .route("/ws", get(api::ws))
         .route("/", get(ui::index))
         .with_state(state);
 
