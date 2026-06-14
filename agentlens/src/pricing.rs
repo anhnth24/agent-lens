@@ -52,20 +52,32 @@ pub fn load_json(text: &str) -> anyhow::Result<usize> {
     Ok(n)
 }
 
-/// Nạp bảng giá từ nguồn ngoài nếu có cấu hình env. Trả số model nạp được.
+/// Nguồn giá mặc định (cộng đồng LiteLLM, cập nhật thường xuyên).
+/// [Unverified] bên thứ ba — không đảm bảo khớp giá Anthropic chính thức.
+pub const DEFAULT_PRICING_URL: &str =
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
+
+/// Nạp bảng giá từ nguồn ngoài. Mặc định kéo từ DEFAULT_PRICING_URL.
+/// Override: AGENTLENS_PRICING_FILE (local JSON) hoặc AGENTLENS_PRICING_URL.
+/// Tắt: đặt AGENTLENS_PRICING_URL="" (rỗng) -> chỉ dùng bảng built-in.
 pub async fn refresh_from_source() -> anyhow::Result<usize> {
     if let Ok(path) = std::env::var("AGENTLENS_PRICING_FILE") {
         if !path.is_empty() {
             return load_json(&std::fs::read_to_string(&path)?);
         }
     }
-    if let Ok(url) = std::env::var("AGENTLENS_PRICING_URL") {
-        if !url.is_empty() {
-            let text = reqwest::get(&url).await?.text().await?;
-            return load_json(&text);
-        }
+    let url = match std::env::var("AGENTLENS_PRICING_URL") {
+        Ok(u) => u,                                  // set tường minh (có thể "" để tắt)
+        Err(_) => DEFAULT_PRICING_URL.to_string(),   // mặc định
+    };
+    if url.is_empty() {
+        return Ok(0);
     }
-    Ok(0)
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+    let text = client.get(&url).send().await?.text().await?;
+    load_json(&text)
 }
 
 /// Chọn giá theo tên model (substring). Ưu tiên bảng động (match dài nhất), rồi built-in.

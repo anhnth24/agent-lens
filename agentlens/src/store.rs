@@ -299,6 +299,77 @@ pub fn friction(conn: &Connection, session_id: &str) -> Result<Value> {
     Ok(Value::Array(findings))
 }
 
+/// Các bước lỗi trong 1 session (kèm nội dung lỗi) — để debug nhanh.
+pub fn errors(conn: &Connection, session_id: &str) -> Result<Value> {
+    let mut stmt = conn.prepare(
+        r#"SELECT ts, COALESCE(tool_result,'') FROM events
+           WHERE session_id=?1 AND tool_error=1 ORDER BY ts"#,
+    )?;
+    let rows = stmt.query_map(params![session_id], |r| {
+        let res: String = r.get(1)?;
+        Ok(json!({
+            "ts": r.get::<_, Option<String>>(0)?,
+            "snippet": res.chars().take(300).collect::<String>(),
+        }))
+    })?;
+    Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
+}
+
+/// File agent động nhiều nhất (Edit/Write/Read) — lọc theo project + thời gian.
+pub fn hot_files(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
+        r#"SELECT t.target,
+                  SUM(CASE WHEN t.tool_name IN ('Edit','Write','MultiEdit') THEN 1 ELSE 0 END) AS edits,
+                  SUM(CASE WHEN t.tool_name='Read' THEN 1 ELSE 0 END) AS reads,
+                  COUNT(*) AS total
+           FROM tools t JOIN sessions s ON s.session_id=t.session_id
+           WHERE t.tool_name IN ('Edit','Write','Read','MultiEdit') AND t.target<>''
+                 {proj}{time}
+           GROUP BY t.target ORDER BY total DESC LIMIT 20"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("t.ts_use", from, "AND"),
+    );
+    let map = |r: &rusqlite::Row| {
+        Ok(json!({
+            "target": r.get::<_, String>(0)?,
+            "edits": r.get::<_, i64>(1)?,
+            "reads": r.get::<_, i64>(2)?,
+            "total": r.get::<_, i64>(3)?,
+        }))
+    };
+    let out: Vec<Value> = match project {
+        Some(p) => { let mut s=conn.prepare(&sql)?; let v=s.query_map(params![p],map)?.collect::<rusqlite::Result<_>>()?; v }
+        None => { let mut s=conn.prepare(&sql)?; let v=s.query_map([],map)?.collect::<rusqlite::Result<_>>()?; v }
+    };
+    Ok(Value::Array(out))
+}
+
+/// Thao tác tool chậm nhất — lọc theo project + thời gian.
+pub fn slowest(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
+        r#"SELECT t.tool_name, t.target, t.duration_ms, t.session_id, t.is_error
+           FROM tools t JOIN sessions s ON s.session_id=t.session_id
+           WHERE t.duration_ms IS NOT NULL {proj}{time}
+           ORDER BY t.duration_ms DESC LIMIT 15"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("t.ts_use", from, "AND"),
+    );
+    let map = |r: &rusqlite::Row| {
+        Ok(json!({
+            "tool": r.get::<_, Option<String>>(0)?,
+            "target": r.get::<_, Option<String>>(1)?,
+            "duration_ms": r.get::<_, Option<i64>>(2)?,
+            "session_id": r.get::<_, String>(3)?,
+            "is_error": r.get::<_, i64>(4)? != 0,
+        }))
+    };
+    let out: Vec<Value> = match project {
+        Some(p) => { let mut s=conn.prepare(&sql)?; let v=s.query_map(params![p],map)?.collect::<rusqlite::Result<_>>()?; v }
+        None => { let mut s=conn.prepare(&sql)?; let v=s.query_map([],map)?.collect::<rusqlite::Result<_>>()?; v }
+    };
+    Ok(Value::Array(out))
+}
+
 pub fn set_tag(conn: &Connection, session_id: &str, tag: &str, outcome: &str) -> Result<()> {
     conn.execute(
         "UPDATE sessions SET tag=?2, outcome=?3 WHERE session_id=?1",

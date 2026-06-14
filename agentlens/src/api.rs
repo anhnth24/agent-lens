@@ -102,6 +102,31 @@ pub async fn session_friction(State(state): State<AppState>, Path(id): Path<Stri
     Ok(Json(store::friction(&conn, &id).map_err(err)?))
 }
 
+pub async fn session_errors(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::errors(&conn, &id).map_err(err)?))
+}
+
+pub async fn hot_files(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::hot_files(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn slowest(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::slowest(&conn, project, from.as_deref()).map_err(err)?))
+}
+
 pub async fn search(
     State(state): State<AppState>,
     Query(q): Query<HashMap<String, String>>,

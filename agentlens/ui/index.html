@@ -160,8 +160,11 @@ async function selectRepo(project){
       <th class="num">in</th><th class="num">out</th><th class="num">cached</th><th class="num">cost</th><th class="num">events</th>
     </tr></thead><tbody>`;
   for(const s of rows){
+    const live = s.last_activity && (Date.now() - new Date(s.last_activity).getTime() < 5*60000);
+    const dot = live ? '<span title="đang hoạt động" style="color:#3fb950">● </span>' : '';
+    const tagp = s.tag ? ` <span class="pill">${esc(s.tag)}</span>` : '';
     html += `<tr onclick='openSession(${JSON.stringify(s.session_id)})'>
-      <td class="mono">${shortId(s.session_id)}</td>
+      <td class="mono">${dot}${shortId(s.session_id)}${tagp}</td>
       <td>${esc(s.project||'')}</td>
       <td><span class="pill">${esc(s.git_branch||'—')}</span></td>
       <td>${tstr(s.last_activity)}</td>
@@ -171,9 +174,38 @@ async function selectRepo(project){
       <td class="num" style="color:#3fb950">${money(s.cost_usd)}</td>
       <td class="num">${fmt(s.events)}</td></tr>`;
   }
-  html += `</tbody></table><div id="trends"></div><div id="toolsPanel"></div>`;
+  html += `</tbody></table><div id="trends"></div><div id="toolsPanel"></div>
+    <div id="filesPanel"></div><div id="slowPanel"></div>`;
   document.getElementById('main').innerHTML = html;
-  loadTrends(); loadTools(project);
+  loadTrends(); loadTools(project); loadFiles(project); loadSlowest(project);
+}
+
+async function loadFiles(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/files'+q).catch(()=>[]);
+  if(!rows.length){ document.getElementById('filesPanel').innerHTML=''; return; }
+  let html = `<div class="lbl" style="margin-top:20px">Hot files — agent động nhiều nhất</div>
+    <table><thead><tr><th>File</th><th class="num">edits</th><th class="num">reads</th><th class="num">tổng</th></tr></thead><tbody>`;
+  for(const f of rows){
+    html += `<tr style="cursor:default"><td class="mono">${esc(f.target)}</td>
+      <td class="num tout">${fmt(f.edits)}</td><td class="num">${fmt(f.reads)}</td><td class="num">${fmt(f.total)}</td></tr>`;
+  }
+  document.getElementById('filesPanel').innerHTML = html + `</tbody></table>`;
+}
+
+async function loadSlowest(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/slowest'+q).catch(()=>[]);
+  if(!rows.length){ document.getElementById('slowPanel').innerHTML=''; return; }
+  let html = `<div class="lbl" style="margin-top:20px">Thao tác chậm nhất</div>
+    <table><thead><tr><th>Tool</th><th>Target</th><th class="num">thời lượng</th></tr></thead><tbody>`;
+  for(const t of rows){
+    html += `<tr style="cursor:pointer" onclick='openSession(${JSON.stringify(t.session_id)})'>
+      <td><span class="pill">🔧 ${esc(t.tool)}</span>${t.is_error?' <span class="pill" style="color:#f85149;border-color:#f85149">err</span>':''}</td>
+      <td class="mono">${esc((t.target||'').slice(0,60))}</td>
+      <td class="num">${ms(t.duration_ms||0)}</td></tr>`;
+  }
+  document.getElementById('slowPanel').innerHTML = html + `</tbody></table>`;
 }
 
 async function loadTrends(){
@@ -215,11 +247,12 @@ async function loadTools(project){
 async function openSession(id){
   activeSession = id;
   const enc = encodeURIComponent(id);
-  const [evs, prompts, models, fric, sess] = await Promise.all([
+  const [evs, prompts, models, fric, errs, sess] = await Promise.all([
     j('/api/sessions/'+enc+'/events'),
     j('/api/sessions/'+enc+'/prompts').catch(()=>[]),
     j('/api/sessions/'+enc+'/models').catch(()=>[]),
     j('/api/sessions/'+enc+'/friction').catch(()=>[]),
+    j('/api/sessions/'+enc+'/errors').catch(()=>[]),
     j('/api/sessions?range=all').catch(()=>[])
   ]);
   const meta = (sess||[]).find(s=>s.session_id===id) || {};
@@ -251,6 +284,13 @@ async function openSession(id){
   if(fric.length){
     html += `<div class="lbl" style="margin-top:14px">Friction / loop</div>`;
     for(const f of fric) html += `<div class="finding sev-${f.severity}">${esc(f.text)}</div>`;
+  }
+  // errors (debug nhanh)
+  if(errs.length){
+    html += `<div class="lbl" style="margin-top:14px">Lỗi (${errs.length})</div>`;
+    for(const e of errs.slice(0,15)){
+      html += `<div class="ev open think" style="border-left-color:#f85149"><div class="head"><span class="role" style="color:#f85149">⚠ error</span><span class="time">${tstr(e.ts)}</span></div><div class="body"><pre>${esc(e.snippet)}</pre></div></div>`;
+    }
   }
   // breakdown theo prompt
   if(prompts.length){
