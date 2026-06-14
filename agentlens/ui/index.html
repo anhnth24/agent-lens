@@ -19,7 +19,8 @@
     --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.32);
     --shadow-sm:0 1px 2px rgba(0,0,0,.3);
     --grad:linear-gradient(135deg,#3b82f6,#6366f1);
-    --hdr-h:60px; --tb-h:54px;
+    --hdr-h:56px; --tb-h:52px; --kpi-h:96px; --maxw:1380px;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
   }
   [data-theme="light"]{
     /* light — Data-Dense Dashboard: blue data + amber highlights (WCAG AA) */
@@ -51,13 +52,20 @@
     color:#fff; box-shadow:var(--shadow-sm); }
   .brand h1{ font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
   .brand .sub{ display:block; font-size:11px; color:var(--muted); font-weight:500; margin-top:-1px; }
-  .totals{ display:flex; gap:9px; margin-left:auto; overflow-x:auto; padding:4px 2px; scrollbar-width:none; }
-  .totals::-webkit-scrollbar{ display:none; }
-  .stat{ background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm);
-    padding:6px 13px; min-width:max-content; transition:border-color .15s,transform .15s; }
-  .stat:hover{ border-color:var(--border-strong); }
-  .stat .k{ color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
-  .stat .v{ font-size:15px; font-weight:700; letter-spacing:-.01em; margin-top:1px; }
+  /* KPI metrics band — dashboard "key indicators" row */
+  .kpiband{ display:flex; gap:var(--s3); height:var(--kpi-h); align-items:stretch; overflow-x:auto;
+    background:var(--bg); border-bottom:1px solid var(--border);
+    padding:var(--s4) max(20px,calc((100% - var(--maxw))/2)); scrollbar-width:none; }
+  .kpiband::-webkit-scrollbar{ display:none; }
+  .kcard{ flex:1 1 0; min-width:138px; background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:11px 15px; display:flex; flex-direction:column; gap:7px;
+    box-shadow:var(--shadow-sm); transition:border-color .15s,transform .15s; }
+  .kcard:hover{ border-color:var(--border-strong); transform:translateY(-1px); }
+  .kcard .top{ display:flex; align-items:center; gap:6px; color:var(--muted); font-size:10.5px;
+    font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
+  .kcard .top svg{ opacity:.75; }
+  .kcard .val{ font-size:23px; font-weight:700; letter-spacing:-.02em; line-height:1;
+    font-family:"Fira Code",ui-monospace,monospace; }
   .tin{ color:var(--in); } .tout{ color:var(--out); } .tcache{ color:var(--cache); } .tcost{ color:var(--green); }
   .icon-btn{ flex:none; width:34px; height:34px; display:grid; place-items:center; cursor:pointer;
     background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--fg-soft);
@@ -88,7 +96,7 @@
   .btn.active{ border-color:var(--accent); color:var(--accent); background:var(--accent-weak); }
 
   /* ── layout ── */
-  .layout{ display:grid; grid-template-columns:286px 1fr; height:calc(100vh - var(--hdr-h) - var(--tb-h)); }
+  .layout{ display:grid; grid-template-columns:276px 1fr; height:calc(100vh - var(--hdr-h) - var(--tb-h) - var(--kpi-h)); }
   aside{ border-right:1px solid var(--border); background:var(--surface); overflow:auto; padding:8px; }
   aside h2{ font-size:11px; text-transform:uppercase; color:var(--muted); padding:8px 10px 6px; margin:0; letter-spacing:.06em; font-weight:700; }
   .repo{ padding:10px 12px; cursor:pointer; border-radius:var(--radius-sm); transition:background .15s; position:relative; margin-bottom:2px; }
@@ -98,7 +106,7 @@
   .repo .name{ font-weight:650; }
   .repo .meta{ color:var(--muted); font-size:12px; margin-top:1px; }
   .repo .toks{ font-size:11px; margin-top:4px; color:var(--fg-soft); }
-  main{ overflow:auto; padding:18px 22px 60px; }
+  main{ overflow:auto; padding:24px max(20px,calc((100% - var(--maxw))/2)) 64px; }
 
   .crumbs{ color:var(--muted); margin-bottom:14px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .crumbs b{ color:var(--fg); }
@@ -135,10 +143,11 @@
   @keyframes pulse{ 0%{ box-shadow:0 0 0 0 color-mix(in srgb,var(--green) 60%,transparent);} 70%{ box-shadow:0 0 0 7px transparent;} 100%{ box-shadow:0 0 0 0 transparent;} }
 
   /* ── section labels ── */
-  .lbl{ color:var(--fg-soft); font-size:12px; font-weight:700; letter-spacing:.02em; margin:22px 0 8px;
-    display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .lbl:first-child{ margin-top:0; }
-  .lbl .note{ font-weight:500; color:var(--muted); font-size:11px; }
+  .lbl{ color:var(--fg); font-size:14px; font-weight:700; letter-spacing:-.01em; margin:var(--s6) 0 var(--s3);
+    display:flex; align-items:center; gap:9px; flex-wrap:wrap; padding-left:11px; position:relative; }
+  .lbl::before{ content:""; position:absolute; left:0; top:1px; bottom:1px; width:3px; border-radius:3px; background:var(--accent); }
+  .lbl:first-child{ margin-top:var(--s2); }
+  .lbl .note{ font-weight:500; color:var(--muted); font-size:11.5px; letter-spacing:0; }
   .toks-mini{ font-size:11px; color:var(--muted); }
 
   /* ── findings / cards ── */
@@ -154,8 +163,10 @@
   .kpi .v{ font-size:21px; font-weight:750; letter-spacing:-.02em; margin-top:3px; }
 
   /* ── bars ── */
-  .bars{ display:flex; align-items:flex-end; gap:6px; height:96px; padding:10px 4px; background:var(--surface);
-    border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm); }
+  .bars{ display:flex; align-items:flex-end; gap:6px; height:120px; padding:14px 12px; background:var(--surface);
+    border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm);
+    background-image:repeating-linear-gradient(to top,transparent 0,transparent calc(25% - 1px),var(--border) calc(25% - 1px),var(--border) 25%);
+    background-position:0 -14px; }
   .bar{ display:flex; flex-direction:column; align-items:center; justify-content:flex-end; flex:1; min-width:14px; }
   .barfill{ width:60%; max-width:26px; min-width:8px; background:var(--grad); border-radius:5px 5px 0 0; transition:height .25s; }
   .barlbl{ font-size:10px; color:var(--muted); margin-top:5px; }
@@ -236,8 +247,8 @@
     <span class="logo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
     <div><h1>AgentLens</h1><span class="sub">Claude Code sessions</span></div>
   </div>
-  <div class="totals" id="totals"></div>
-  <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Đổi sáng/tối"></button>
+  <div style="margin-left:auto"></div>
+  <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Đổi sáng/tối" aria-label="Đổi sáng/tối"></button>
 </header>
 <div class="toolbar">
   <div class="seg" id="ranges">
@@ -256,6 +267,7 @@
     Insight
   </button>
 </div>
+<div class="kpiband" id="totals"></div>
 <div class="layout">
   <aside>
     <h2>Repos</h2>
@@ -297,6 +309,13 @@ const ICONS = {
   message:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.6 1.6 0 0 0-2.7 1.1 2 2 0 0 1-4 0 1.6 1.6 0 0 0-2.7-1.1 2 2 0 1 1-2.8-2.8 1.6 1.6 0 0 0-1.1-2.7 2 2 0 0 1 0-4 1.6 1.6 0 0 0 1.1-2.7 2 2 0 1 1 2.8-2.8 1.6 1.6 0 0 0 2.7-1.1 2 2 0 0 1 4 0 1.6 1.6 0 0 0 2.7 1.1 2 2 0 1 1 2.8 2.8 1.6 1.6 0 0 0 1.1 2.7 2 2 0 0 1 0 4 1.6 1.6 0 0 0-1.4 1z"/>',
   check:'<path d="M20 6 9 17l-5-5"/>',
+  arrowDown:'<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  arrowUp:'<path d="M12 19V5M5 12l7-7 7 7"/>',
+  database:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+  percent:'<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  dollar:'<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2.5 0 0 0-2.5-1.5c-1.4 0-2.5.8-2.5 2s1.1 2 2.5 2 2.5.9 2.5 2-1.1 2-2.5 2A2.5 2.5 0 0 1 9.5 15M12 6v12"/>',
+  tag:'<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.4.6l7.4 7.4a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+  code:'<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
 };
 function toolPill(name){ return `<span class="pill">${ic('wrench',12)} ${esc(name)}</span>`; }
 const TABICON = {live:'live',sessions:'sessions',tools:'tools',files:'files',analytics:'analytics',quality:'quality'};
@@ -330,15 +349,19 @@ function tokBadges(o){
 
 async function loadTotals(){
   const t = await j('/api/totals?'+rq());
-  document.getElementById('totals').innerHTML = `
-    <div class="stat"><div class="k">Sessions</div><div class="v">${fmt(t.sessions)}</div></div>
-    <div class="stat"><div class="k">Token in</div><div class="v tin">${fmt(t.input_tokens)}</div></div>
-    <div class="stat"><div class="k">Token out</div><div class="v tout">${fmt(t.output_tokens)}</div></div>
-    <div class="stat"><div class="k">Cached</div><div class="v tcache">${fmt(t.cache_read_tokens)}</div></div>
-    <div class="stat" title="cache_read / tổng input — càng cao càng tiết kiệm"><div class="k">Cache hit</div><div class="v tcache">${cacheHit(t)}%</div></div>
-    <div class="stat" title="ước tính theo bảng giá model"><div class="k">Cost</div><div class="v tcost">${money(t.cost_usd)}</div></div>
-    <div class="stat" title="tiền tiết kiệm nhờ prompt cache (ước tính)"><div class="k">Tiết kiệm</div><div class="v tcache">${money(t.cache_savings_usd)}</div></div>
-    ${(t.loc_added||t.loc_removed)?`<div class="stat" title="từ OTEL"><div class="k">LOC</div><div class="v"><span class="tin">+${fmt(t.loc_added)}</span>/<span style="color:var(--red)">-${fmt(t.loc_removed)}</span></div></div>`:''}`;
+  const card = (icon,label,val,cls,title)=>`<div class="kcard"${title?` title="${title}"`:''}>
+    <div class="top">${ic(icon,13)}${label}</div><div class="val ${cls||''}">${val}</div></div>`;
+  let h = '';
+  h += card('sessions','Sessions',fmt(t.sessions));
+  h += card('arrowDown','Token in',fmt(t.input_tokens),'tin');
+  h += card('arrowUp','Token out',fmt(t.output_tokens),'tout');
+  h += card('database','Cached',fmt(t.cache_read_tokens),'tcache');
+  h += card('percent','Cache hit',cacheHit(t)+'%','tcache','cache_read / tổng input — càng cao càng tiết kiệm');
+  h += card('dollar','Cost',money(t.cost_usd),'tcost','ước tính theo bảng giá model');
+  h += card('tag','Tiết kiệm',money(t.cache_savings_usd),'tcache','tiền tiết kiệm nhờ prompt cache');
+  if(t.loc_added||t.loc_removed)
+    h += card('code','LOC',`<span class="tin">+${fmt(t.loc_added)}</span><span style="color:var(--muted)">/</span><span style="color:var(--red)">-${fmt(t.loc_removed)}</span>`,'','từ OTEL');
+  document.getElementById('totals').innerHTML = h;
 }
 
 async function loadRepos(){
