@@ -1,108 +1,234 @@
 <!doctype html>
-<html lang="vi">
+<html lang="vi" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AgentLens — Claude Code sessions</title>
 <style>
-  :root {
-    --bg:#0f1419; --panel:#161b22; --panel2:#1c232c; --border:#2a323c;
-    --fg:#d7dce2; --muted:#8b949e; --accent:#58a6ff; --in:#3fb950; --out:#d29922; --cache:#a371f7;
+  :root{
+    --bg:#0b0e14; --surface:#11151c; --surface-2:#161b24; --surface-3:#1b212c;
+    --border:#222a36; --border-strong:#2e3744;
+    --fg:#e7ebf2; --fg-soft:#aeb6c2; --muted:#717c8b;
+    --accent:#6ea8fe; --accent-2:#a371f7; --accent-weak:rgba(110,168,254,.14);
+    --green:#3fb950; --amber:#e3a008; --red:#f85149;
+    --in:#3fb950; --out:#e0a93a; --cache:#a371f7;
+    --radius:14px; --radius-sm:9px; --radius-pill:999px;
+    --shadow:0 1px 2px rgba(0,0,0,.35),0 8px 28px rgba(0,0,0,.30);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.30);
+    --grad:linear-gradient(135deg,#6ea8fe,#a371f7);
+    --hdr-h:60px; --tb-h:54px;
   }
-  * { box-sizing:border-box; }
-  body { margin:0; font:14px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-         background:var(--bg); color:var(--fg); }
-  header { padding:12px 18px; border-bottom:1px solid var(--border); background:var(--panel);
-           display:flex; align-items:center; gap:18px; flex-wrap:wrap; position:sticky; top:0; z-index:5; }
-  header h1 { font-size:16px; margin:0; font-weight:600; }
-  header h1 small { color:var(--muted); font-weight:400; }
-  .totals { display:flex; gap:14px; flex-wrap:wrap; margin-left:auto; }
-  .stat { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:6px 12px; }
-  .stat .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
-  .stat .v { font-size:16px; font-weight:600; }
-  .tin { color:var(--in); } .tout { color:var(--out); } .tcache { color:var(--cache); }
-  .layout { display:grid; grid-template-columns:300px 1fr; min-height:calc(100vh - 58px); }
-  aside { border-right:1px solid var(--border); background:var(--panel); overflow:auto; }
-  aside h2 { font-size:12px; text-transform:uppercase; color:var(--muted); padding:12px 14px 4px; margin:0; letter-spacing:.05em; }
-  .repo { padding:10px 14px; cursor:pointer; border-left:3px solid transparent; }
-  .repo:hover { background:var(--panel2); }
-  .repo.active { background:var(--panel2); border-left-color:var(--accent); }
-  .repo .name { font-weight:600; }
-  .repo .meta { color:var(--muted); font-size:12px; }
-  .repo .toks { font-size:11px; margin-top:3px; }
-  main { overflow:auto; padding:16px 20px; }
-  .crumbs { color:var(--muted); margin-bottom:12px; }
-  .crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
-  table { width:100%; border-collapse:collapse; }
-  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
-  th { color:var(--muted); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
-  tbody tr { cursor:pointer; }
-  tbody tr:hover { background:var(--panel2); }
-  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
-  .num { text-align:right; }
-  .pill { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; background:var(--panel2); border:1px solid var(--border); color:var(--muted); }
-  /* timeline */
-  .ev { border:1px solid var(--border); border-radius:8px; margin:8px 0; background:var(--panel); }
-  .ev .head { padding:8px 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; cursor:pointer; }
-  .ev .role { font-weight:600; }
-  .role-user { color:var(--accent); } .role-assistant { color:var(--in); }
-  .ev .time { color:var(--muted); font-size:12px; }
-  .ev .body { padding:0 12px 12px; display:none; }
-  .ev.open .body { display:block; }
-  .ev pre { white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--border);
-            border-radius:6px; padding:8px 10px; margin:6px 0; max-height:340px; overflow:auto; font-size:12.5px; }
-  .lbl { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; margin-top:8px; }
-  .think { border-left:3px solid var(--cache); }
-  .toks-mini { font-size:11px; color:var(--muted); }
-  .empty { color:var(--muted); padding:40px; text-align:center; }
-  button.tab { background:var(--panel2); color:var(--fg); border:1px solid var(--border); border-radius:6px;
-               padding:5px 10px; cursor:pointer; margin-right:6px; }
-  button.tab.active { border-color:var(--accent); color:var(--accent); }
-  .bars { display:flex; align-items:flex-end; gap:6px; height:90px; padding:8px 2px; }
-  .bar { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; }
-  .barfill { width:22px; background:linear-gradient(var(--accent),#1f6feb); border-radius:3px 3px 0 0; }
-  .barlbl { font-size:10px; color:var(--muted); margin-top:4px; }
-  .toolbar { display:flex; gap:14px; align-items:center; padding:8px 18px; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:58px; z-index:4; }
-  .ranges button { background:var(--panel2); color:var(--muted); border:1px solid var(--border); border-radius:6px; padding:5px 11px; cursor:pointer; margin-right:4px; }
-  .ranges button.active { border-color:var(--accent); color:var(--accent); }
-  #search { flex:1; max-width:520px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:7px 12px; color:var(--fg); }
-  .finding { padding:7px 10px; border-radius:6px; margin:5px 0; border-left:3px solid var(--border); background:var(--panel); }
-  .sev-high { border-left-color:#f85149; } .sev-med { border-left-color:var(--out); } .sev-low { border-left-color:var(--muted); }
-  .taginput { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:5px 9px; color:var(--fg); margin-right:6px; }
-  .heat { display:inline-block; margin-top:6px; }
-  .heatrow { display:flex; align-items:center; }
-  .heatlbl { width:30px; font-size:11px; color:var(--muted); }
-  .heath { width:16px; font-size:9px; color:var(--muted); text-align:left; }
-  .heatcell { width:16px; height:16px; margin:1px; border-radius:2px; background:var(--panel2); }
-  .tabs { display:flex; gap:6px; margin:4px 0 14px; border-bottom:1px solid var(--border); padding-bottom:10px; }
-  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:20; }
-  .replay { width:min(820px,92vw); max-height:86vh; background:var(--panel); border:1px solid var(--border); border-radius:10px; display:flex; flex-direction:column; }
-  .replay .rhead { display:flex; gap:8px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--border); }
-  .replay .rbody { padding:12px 16px; overflow:auto; }
-  .replay .rbody .head { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
-  #liveCards { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:10px; margin-top:8px; }
-  .livecard { border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:var(--panel); cursor:pointer; }
-  .livecard:hover { border-color:var(--accent); }
-  .livecard .lc-top { display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
-  .livecard .lc-act { margin:6px 0 4px; font-size:13px; }
-  .livecard .lc-meta { font-size:11px; color:var(--muted); }
+  [data-theme="light"]{
+    --bg:#f5f7fb; --surface:#ffffff; --surface-2:#f2f5f9; --surface-3:#e9eef4;
+    --border:#e4e9f0; --border-strong:#d2dae4;
+    --fg:#0f1828; --fg-soft:#3c4658; --muted:#69748a;
+    --accent:#2f6df0; --accent-2:#7c3aed; --accent-weak:rgba(47,109,240,.10);
+    --green:#1a9c46; --amber:#b4730a; --red:#dc2f2f;
+    --in:#1a9c46; --out:#b4730a; --cache:#7c3aed;
+    --shadow:0 1px 2px rgba(15,23,42,.05),0 10px 30px rgba(15,23,42,.08);
+    --shadow-sm:0 1px 2px rgba(15,23,42,.06);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{ margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  ::-webkit-scrollbar{ width:11px; height:11px; }
+  ::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--muted); background-clip:padding-box; }
+  a{ color:var(--accent); cursor:pointer; text-decoration:none; }
+
+  /* ── header ── */
+  header{ height:var(--hdr-h); padding:0 18px; background:var(--surface); border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:18px; position:sticky; top:0; z-index:6; }
+  .brand{ display:flex; align-items:center; gap:11px; }
+  .logo{ width:30px; height:30px; border-radius:9px; background:var(--grad); display:grid; place-items:center;
+    color:#fff; box-shadow:var(--shadow-sm); }
+  .brand h1{ font-size:15px; margin:0; font-weight:700; letter-spacing:-.01em; }
+  .brand .sub{ display:block; font-size:11px; color:var(--muted); font-weight:500; margin-top:-1px; }
+  .totals{ display:flex; gap:9px; margin-left:auto; overflow-x:auto; padding:4px 2px; scrollbar-width:none; }
+  .totals::-webkit-scrollbar{ display:none; }
+  .stat{ background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:6px 13px; min-width:max-content; transition:border-color .15s,transform .15s; }
+  .stat:hover{ border-color:var(--border-strong); }
+  .stat .k{ color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+  .stat .v{ font-size:15px; font-weight:700; letter-spacing:-.01em; margin-top:1px; }
+  .tin{ color:var(--in); } .tout{ color:var(--out); } .tcache{ color:var(--cache); } .tcost{ color:var(--green); }
+  .icon-btn{ flex:none; width:34px; height:34px; display:grid; place-items:center; cursor:pointer;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--fg-soft);
+    transition:all .15s; }
+  .icon-btn:hover{ color:var(--fg); border-color:var(--border-strong); background:var(--surface-3); }
+
+  /* ── toolbar ── */
+  .toolbar{ height:var(--tb-h); display:flex; gap:12px; align-items:center; padding:0 18px;
+    background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:var(--hdr-h); z-index:5; }
+  .seg{ display:flex; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-pill); padding:3px; }
+  .seg button{ border:none; background:transparent; color:var(--muted); font:inherit; font-size:12.5px; font-weight:600;
+    padding:5px 12px; border-radius:var(--radius-pill); cursor:pointer; transition:all .15s; white-space:nowrap; }
+  .seg button:hover{ color:var(--fg); }
+  .seg button.active{ background:var(--accent); color:#fff; box-shadow:var(--shadow-sm); }
+  [data-theme="light"] .seg button.active{ color:#fff; }
+  .searchwrap{ flex:1; max-width:560px; position:relative; display:flex; align-items:center; }
+  .searchwrap svg{ position:absolute; left:12px; color:var(--muted); pointer-events:none; }
+  #search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-pill);
+    padding:8px 14px 8px 36px; color:var(--fg); font:inherit; transition:all .15s; }
+  #search:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak); }
+  #search::placeholder{ color:var(--muted); }
+  .btn{ display:inline-flex; align-items:center; gap:6px; background:var(--surface-2); color:var(--fg);
+    border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px 13px; cursor:pointer; font:inherit;
+    font-weight:600; font-size:13px; transition:all .15s; white-space:nowrap; }
+  .btn:hover{ border-color:var(--border-strong); background:var(--surface-3); }
+  .btn.primary{ background:var(--accent); border-color:transparent; color:#fff; }
+  .btn.primary:hover{ filter:brightness(1.08); }
+  .btn.active{ border-color:var(--accent); color:var(--accent); background:var(--accent-weak); }
+
+  /* ── layout ── */
+  .layout{ display:grid; grid-template-columns:286px 1fr; height:calc(100vh - var(--hdr-h) - var(--tb-h)); }
+  aside{ border-right:1px solid var(--border); background:var(--surface); overflow:auto; padding:8px; }
+  aside h2{ font-size:11px; text-transform:uppercase; color:var(--muted); padding:8px 10px 6px; margin:0; letter-spacing:.06em; font-weight:700; }
+  .repo{ padding:10px 12px; cursor:pointer; border-radius:var(--radius-sm); transition:background .15s; position:relative; margin-bottom:2px; }
+  .repo:hover{ background:var(--surface-2); }
+  .repo.active{ background:var(--accent-weak); }
+  .repo.active::before{ content:""; position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:3px; background:var(--accent); }
+  .repo .name{ font-weight:650; }
+  .repo .meta{ color:var(--muted); font-size:12px; margin-top:1px; }
+  .repo .toks{ font-size:11px; margin-top:4px; color:var(--fg-soft); }
+  main{ overflow:auto; padding:18px 22px 60px; }
+
+  .crumbs{ color:var(--muted); margin-bottom:14px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .crumbs b{ color:var(--fg); }
+
+  /* ── tabs ── */
+  .tabs{ display:flex; gap:4px; margin:2px 0 18px; border-bottom:1px solid var(--border); }
+  .tab{ display:inline-flex; align-items:center; gap:7px; background:transparent; color:var(--muted); border:none;
+    border-bottom:2px solid transparent; padding:9px 13px; cursor:pointer; font:inherit; font-weight:600; font-size:13.5px;
+    margin-bottom:-1px; transition:color .15s,border-color .15s; }
+  .tab:hover{ color:var(--fg); }
+  .tab.active{ color:var(--accent); border-bottom-color:var(--accent); }
+  .tab svg{ opacity:.85; }
+
+  /* ── tables ── */
+  table{ width:100%; border-collapse:separate; border-spacing:0; background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow-sm); margin:6px 0 4px; }
+  th,td{ text-align:left; padding:10px 14px; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
+  thead th{ position:sticky; top:0; background:var(--surface-2); color:var(--muted); font-weight:600; font-size:11px;
+    text-transform:uppercase; letter-spacing:.04em; z-index:1; }
+  tbody tr{ cursor:pointer; transition:background .12s; }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:var(--accent-weak); }
+  .num{ text-align:right; }
+  .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
+
+  .pill{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:var(--radius-pill); font-size:11px;
+    font-weight:600; background:var(--surface-2); border:1px solid var(--border); color:var(--fg-soft); }
+  .pill.err{ color:var(--red); border-color:color-mix(in srgb,var(--red) 35%,transparent); background:color-mix(in srgb,var(--red) 12%,transparent); }
+  .hbadge{ display:inline-block; min-width:34px; text-align:center; padding:2px 8px; border-radius:var(--radius-pill);
+    font-weight:700; font-size:12px; color:var(--c); background:color-mix(in srgb,var(--c) 15%,transparent);
+    border:1px solid color-mix(in srgb,var(--c) 30%,transparent); }
+  .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .dot.live{ background:var(--green); box-shadow:0 0 0 0 color-mix(in srgb,var(--green) 70%,transparent); animation:pulse 1.8s infinite; }
+  @keyframes pulse{ 0%{ box-shadow:0 0 0 0 color-mix(in srgb,var(--green) 60%,transparent);} 70%{ box-shadow:0 0 0 7px transparent;} 100%{ box-shadow:0 0 0 0 transparent;} }
+
+  /* ── section labels ── */
+  .lbl{ color:var(--fg-soft); font-size:12px; font-weight:700; letter-spacing:.02em; margin:22px 0 8px;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .lbl:first-child{ margin-top:0; }
+  .lbl .note{ font-weight:500; color:var(--muted); font-size:11px; }
+  .toks-mini{ font-size:11px; color:var(--muted); }
+
+  /* ── findings / cards ── */
+  .finding{ padding:10px 13px; border-radius:var(--radius-sm); margin:6px 0; background:var(--surface);
+    border:1px solid var(--border); border-left:3px solid var(--border-strong); box-shadow:var(--shadow-sm); }
+  .finding.sev-high{ border-left-color:var(--red); } .finding.sev-med{ border-left-color:var(--amber); } .finding.sev-low{ border-left-color:var(--muted); }
+
+  /* ── KPI grid for digest ── */
+  .kpis{ display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 6px; }
+  .kpi{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px;
+    min-width:130px; box-shadow:var(--shadow-sm); }
+  .kpi .k{ color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .kpi .v{ font-size:21px; font-weight:750; letter-spacing:-.02em; margin-top:3px; }
+
+  /* ── bars ── */
+  .bars{ display:flex; align-items:flex-end; gap:6px; height:96px; padding:10px 4px; background:var(--surface);
+    border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm); }
+  .bar{ display:flex; flex-direction:column; align-items:center; justify-content:flex-end; flex:1; min-width:14px; }
+  .barfill{ width:60%; max-width:26px; min-width:8px; background:var(--grad); border-radius:5px 5px 0 0; transition:height .25s; }
+  .barlbl{ font-size:10px; color:var(--muted); margin-top:5px; }
+
+  /* ── timeline events ── */
+  .ev{ border:1px solid var(--border); border-radius:var(--radius-sm); margin:8px 0; background:var(--surface); box-shadow:var(--shadow-sm); overflow:hidden; }
+  .ev .head{ padding:10px 13px; display:flex; gap:9px; align-items:center; flex-wrap:wrap; cursor:pointer; }
+  .ev .head:hover{ background:var(--surface-2); }
+  .ev .role{ font-weight:700; }
+  .role-user{ color:var(--accent); } .role-assistant{ color:var(--green); }
+  .ev .time{ color:var(--muted); font-size:12px; }
+  .ev .body{ padding:0 13px 12px; display:none; }
+  .ev.open .body{ display:block; }
+  .ev.open .head{ border-bottom:1px solid var(--border); margin-bottom:8px; }
+  pre{ white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:10px 12px; margin:6px 0; max-height:360px; overflow:auto; font-size:12.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .think{ border-left:3px solid var(--accent-2); }
+
+  /* ── inputs ── */
+  .taginput{ background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px 11px; color:var(--fg); font:inherit; margin-right:7px; }
+  .taginput:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak); }
+
+  /* ── heatmap ── */
+  .heat{ display:inline-block; margin-top:6px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px; box-shadow:var(--shadow-sm); }
+  .heatrow{ display:flex; align-items:center; }
+  .heatlbl{ width:32px; font-size:11px; color:var(--muted); }
+  .heath{ width:17px; font-size:9px; color:var(--muted); text-align:left; }
+  .heatcell{ width:17px; height:17px; margin:1.5px; border-radius:3px; background:var(--surface-3); }
+
+  /* ── empty ── */
+  .empty{ color:var(--muted); padding:54px 20px; text-align:center; }
+  .empty svg{ opacity:.4; margin-bottom:10px; }
+
+  /* ── live cards ── */
+  #liveCards{ display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:12px; margin-top:8px; }
+  .livecard{ border:1px solid var(--border); border-radius:var(--radius); padding:13px 15px; background:var(--surface);
+    cursor:pointer; box-shadow:var(--shadow-sm); transition:border-color .15s,transform .15s,box-shadow .15s; }
+  .livecard:hover{ border-color:var(--accent); transform:translateY(-2px); box-shadow:var(--shadow); }
+  .livecard .lc-top{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .livecard .lc-act{ margin:9px 0 6px; font-size:13px; }
+  .livecard .lc-meta{ font-size:11.5px; color:var(--muted); }
+
+  /* ── modal / replay ── */
+  .overlay{ position:fixed; inset:0; background:rgba(2,4,10,.62); backdrop-filter:blur(3px); display:flex;
+    align-items:center; justify-content:center; z-index:30; }
+  .replay{ width:min(860px,93vw); max-height:88vh; background:var(--surface); border:1px solid var(--border-strong);
+    border-radius:var(--radius); display:flex; flex-direction:column; box-shadow:var(--shadow); overflow:hidden; }
+  .replay .rhead{ display:flex; gap:9px; align-items:center; padding:13px 16px; border-bottom:1px solid var(--border); background:var(--surface-2); }
+  .replay .rbody{ padding:14px 18px; overflow:auto; }
+  .replay .rbody .head{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>AgentLens <small>· Claude Code sessions</small></h1>
+  <div class="brand">
+    <span class="logo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
+    <div><h1>AgentLens</h1><span class="sub">Claude Code sessions</span></div>
+  </div>
   <div class="totals" id="totals"></div>
+  <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Đổi sáng/tối"></button>
 </header>
 <div class="toolbar">
-  <div class="ranges" id="ranges">
+  <div class="seg" id="ranges">
     <button data-r="today" onclick="setRange('today',this)">Hôm nay</button>
     <button data-r="7d" onclick="setRange('7d',this)">7 ngày</button>
     <button data-r="30d" onclick="setRange('30d',this)">30 ngày</button>
     <button data-r="90d" onclick="setRange('90d',this)">90 ngày</button>
     <button data-r="all" class="active" onclick="setRange('all',this)">Tất cả</button>
   </div>
-  <input id="search" placeholder="🔍 Tìm trong prompt / thinking / tool… (Enter)" onkeydown="if(event.key==='Enter')doSearch()" />
-  <button class="tab" onclick="openInsights()">💡 Insight (LLM)</button>
+  <div class="searchwrap">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="search" placeholder="Tìm trong prompt / thinking / tool…  (Enter)" onkeydown="if(event.key==='Enter')doSearch()" />
+  </div>
+  <button class="btn" onclick="openInsights()">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>
+    Insight
+  </button>
 </div>
 <div class="layout">
   <aside>
@@ -124,6 +250,31 @@ let activeRepo = null, activeSession = null, range = 'all', activeTab = 'session
 let replayEvs = [], replayIdx = 0;
 let autoFollow = false, lastEventTs = null, followBusy = false;
 const rq = () => 'range='+range;
+
+// ── icons (inline SVG, theo currentColor) ──
+const ICONS = {
+  live:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  sessions:'<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>',
+  tools:'<path d="M14.5 6.5a3.6 3.6 0 0 0-4.9 4.9L3 18l3 3 6.6-6.6a3.6 3.6 0 0 0 4.9-4.9l-2.3 2.3-2-.5-.5-2 2.3-2.3z"/>',
+  files:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  analytics:'<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-3"/>',
+  quality:'<circle cx="12" cy="8" r="5"/><path d="M8.5 12.5 7 22l5-3 5 3-1.5-9.5"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+};
+const TABICON = {live:'live',sessions:'sessions',tools:'tools',files:'files',analytics:'analytics',quality:'quality'};
+function ic(name,sz=15){ return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
+
+// ── theme ──
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  try{ localStorage.setItem('al-theme', t); }catch(e){}
+  const b = document.getElementById('themeBtn');
+  if(b) b.innerHTML = ic(t==='dark'?'sun':'moon',17);
+}
+function toggleTheme(){ applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); }
+function healthBadge(h){ if(h==null) return '—'; const c=h>=80?'var(--green)':(h>=50?'var(--amber)':'var(--red)'); return `<span class="hbadge" style="--c:${c}">${h}</span>`; }
+
 function setRange(r, btn){
   range = r;
   document.querySelectorAll('#ranges button').forEach(b=>b.classList.remove('active'));
@@ -137,7 +288,7 @@ function tokBadges(o){
   return `<span class="tin">↓in ${fmt(o.input_tokens)}</span> ·
           <span class="tout">↑out ${fmt(o.output_tokens)}</span> ·
           <span class="tcache">cached ${fmt(o.cache_read_tokens)}</span> ·
-          <span style="color:#3fb950">${money(o.cost_usd)}</span>`;
+          <span class="tcost">${money(o.cost_usd)}</span>`;
 }
 
 async function loadTotals(){
@@ -146,11 +297,11 @@ async function loadTotals(){
     <div class="stat"><div class="k">Sessions</div><div class="v">${fmt(t.sessions)}</div></div>
     <div class="stat"><div class="k">Token in</div><div class="v tin">${fmt(t.input_tokens)}</div></div>
     <div class="stat"><div class="k">Token out</div><div class="v tout">${fmt(t.output_tokens)}</div></div>
-    <div class="stat"><div class="k">Cached (read)</div><div class="v tcache">${fmt(t.cache_read_tokens)}</div></div>
+    <div class="stat"><div class="k">Cached</div><div class="v tcache">${fmt(t.cache_read_tokens)}</div></div>
     <div class="stat" title="cache_read / tổng input — càng cao càng tiết kiệm"><div class="k">Cache hit</div><div class="v tcache">${cacheHit(t)}%</div></div>
-    <div class="stat" title="ước tính theo bảng giá model"><div class="k">Cost (ước tính)</div><div class="v" style="color:#3fb950">${money(t.cost_usd)}</div></div>
-    <div class="stat" title="tiền tiết kiệm nhờ prompt cache (ước tính)"><div class="k">Tiết kiệm cache</div><div class="v tcache">${money(t.cache_savings_usd)}</div></div>
-    ${(t.loc_added||t.loc_removed)?`<div class="stat" title="từ OTEL"><div class="k">LOC (OTEL)</div><div class="v"><span class="tin">+${fmt(t.loc_added)}</span>/<span style="color:#f85149">-${fmt(t.loc_removed)}</span></div></div>`:''}`;
+    <div class="stat" title="ước tính theo bảng giá model"><div class="k">Cost</div><div class="v tcost">${money(t.cost_usd)}</div></div>
+    <div class="stat" title="tiền tiết kiệm nhờ prompt cache (ước tính)"><div class="k">Tiết kiệm</div><div class="v tcache">${money(t.cache_savings_usd)}</div></div>
+    ${(t.loc_added||t.loc_removed)?`<div class="stat" title="từ OTEL"><div class="k">LOC</div><div class="v"><span class="tin">+${fmt(t.loc_added)}</span>/<span style="color:var(--red)">-${fmt(t.loc_removed)}</span></div></div>`:''}`;
 }
 
 async function loadRepos(){
@@ -168,15 +319,15 @@ async function loadRepos(){
   el.innerHTML = html;
 }
 
-const TABS = [['live','🟢 Live'],['sessions','Sessions'],['tools','Tools'],['files','Files'],['analytics','Phân tích'],['quality','Chất lượng']];
+const TABS = [['live','Live'],['sessions','Sessions'],['tools','Tools'],['files','Files'],['analytics','Phân tích'],['quality','Chất lượng']];
 
 async function selectRepo(project){
   activeRepo = project; activeSession = null;
   await loadRepos();
   const title = project===null ? 'Tất cả repo' : esc(project||'(không rõ)');
-  let html = `<div class="crumbs"><a onclick="selectRepo(null)">Repos</a> / <b>${title}</b></div>`;
+  let html = `<div class="crumbs"><a onclick="selectRepo(null)">Repos</a> <span style="color:var(--muted)">/</span> <b>${title}</b></div>`;
   html += `<div class="tabs">` + TABS.map(([k,l]) =>
-    `<button class="tab ${activeTab===k?'active':''}" data-t="${k}" onclick="setTab('${k}')">${l}</button>`).join('') + `</div>`;
+    `<button class="tab ${activeTab===k?'active':''}" data-t="${k}" onclick="setTab('${k}')">${ic(TABICON[k])}${l}</button>`).join('') + `</div>`;
   html += `<div id="tabContent"></div>`;
   document.getElementById('main').innerHTML = html;
   loadTab(project);
@@ -219,11 +370,11 @@ async function loadDigest(project){
   const delta = isFinite(d.cost_delta_pct) ? `${up?'▲':'▼'} ${Math.abs(d.cost_delta_pct).toFixed(0)}%` : '—';
   document.getElementById('digestPanel').innerHTML =
     `<div class="lbl">Digest 7 ngày qua</div>
-     <div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 4px">
-       <div class="stat"><div class="k">Sessions</div><div class="v">${fmt(d.sessions)}</div></div>
-       <div class="stat"><div class="k">Cost</div><div class="v" style="color:#3fb950">${money(d.cost)}</div></div>
-       <div class="stat"><div class="k">vs tuần trước</div><div class="v" style="color:${up?'#f85149':'#3fb950'}">${delta}</div></div>
-       <div class="stat"><div class="k">Tiết kiệm cache</div><div class="v tcache">${money(d.savings)}</div></div>
+     <div class="kpis">
+       <div class="kpi"><div class="k">Sessions</div><div class="v">${fmt(d.sessions)}</div></div>
+       <div class="kpi"><div class="k">Cost</div><div class="v tcost">${money(d.cost)}</div></div>
+       <div class="kpi"><div class="k">vs tuần trước</div><div class="v" style="color:${up?'var(--red)':'var(--green)'}">${delta}</div></div>
+       <div class="kpi"><div class="k">Tiết kiệm cache</div><div class="v tcache">${money(d.savings)}</div></div>
      </div>`;
 }
 
@@ -232,8 +383,8 @@ async function loadRightsizing(project){
   const rows = await j('/api/model-rightsizing'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('rightsizePanel').innerHTML=''; return; }
   const totSave = rows.reduce((a,r)=>a+(r.has_opus?r.save_haiku:0),0);
-  let html = `<div class="lbl" style="margin-top:18px">Model right-sizing — cost theo nhóm việc vs model rẻ hơn
-    <span class="toks-mini">[Inference] heuristic, không phải khuyến nghị tuyệt đối</span></div>
+  let html = `<div class="lbl">Model right-sizing — cost theo nhóm việc vs model rẻ hơn
+    <span class="note">[Inference] heuristic, không phải khuyến nghị tuyệt đối</span></div>
     <table><thead><tr><th>Nhóm việc</th><th class="num">events</th><th class="num">cost hiện tại</th>
       <th class="num">nếu Sonnet</th><th class="num">nếu Haiku</th><th class="num">tiết kiệm tối đa</th></tr></thead><tbody>`;
   for(const r of rows){
@@ -241,10 +392,10 @@ async function loadRightsizing(project){
     const flag = r.has_opus && save>0.05 ? ' 💡' : '';
     html += `<tr style="cursor:default"><td>${esc(r.category)}${flag}</td>
       <td class="num">${fmt(r.events)}</td>
-      <td class="num" style="color:#3fb950">${money(r.current_cost)}</td>
+      <td class="num tcost">${money(r.current_cost)}</td>
       <td class="num">${money(r.as_sonnet)}</td>
       <td class="num">${money(r.as_haiku)}</td>
-      <td class="num" style="color:${save>0.05?'#d29922':'#8b949e'}">${money(save)}</td></tr>`;
+      <td class="num" style="color:${save>0.05?'var(--amber)':'var(--muted)'}">${money(save)}</td></tr>`;
   }
   html += `</tbody></table>`;
   if(totSave>0.05) html += `<div class="finding sev-med">💡 Nếu các nhóm việc đơn giản dùng Haiku thay Opus, ước tính tiết kiệm tới ${money(totSave)} (theo token đã ghi).</div>`;
@@ -256,15 +407,15 @@ async function loadPromptStyles(project){
   const rows = await j('/api/prompt-styles'+q).catch(()=>[]);
   const has = rows.some(r=>r.prompts>0);
   if(!has){ document.getElementById('stylePanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Prompt style → kết quả</div>
+  let html = `<div class="lbl">Prompt style → kết quả</div>
     <table><thead><tr><th>Kiểu prompt</th><th class="num">prompts</th><th class="num">turns TB</th>
       <th class="num">lỗi TB</th><th class="num">cost TB</th></tr></thead><tbody>`;
   for(const r of rows){
     if(!r.prompts) continue;
     html += `<tr style="cursor:default"><td>${esc(r.style)}</td><td class="num">${fmt(r.prompts)}</td>
       <td class="num">${(r.avg_turns||0).toFixed(1)}</td>
-      <td class="num" style="color:${r.avg_errors>0.5?'#f85149':'#8b949e'}">${(r.avg_errors||0).toFixed(1)}</td>
-      <td class="num" style="color:#3fb950">${money(r.avg_cost)}</td></tr>`;
+      <td class="num" style="color:${r.avg_errors>0.5?'var(--red)':'var(--muted)'}">${(r.avg_errors||0).toFixed(1)}</td>
+      <td class="num tcost">${money(r.avg_cost)}</td></tr>`;
   }
   document.getElementById('stylePanel').innerHTML = html + `</tbody></table>`;
 }
@@ -273,7 +424,7 @@ async function loadRecovery(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/recovery'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('recoveryPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Recovery — agent gỡ lỗi nhanh hay loay hoay</div>
+  let html = `<div class="lbl">Recovery — agent gỡ lỗi nhanh hay loay hoay</div>
     <table><thead><tr><th>Tool</th><th class="num">lỗi</th><th class="num">đã gỡ</th>
       <th class="num" title="TB số lần lỗi liên tiếp trước khi thành công">TB tới khi gỡ</th>
       <th class="num" title="chuỗi lỗi liên tiếp dài nhất">streak dài nhất</th></tr></thead><tbody>`;
@@ -282,7 +433,7 @@ async function loadRecovery(project){
     html += `<tr style="cursor:default"><td><span class="pill">🔧 ${esc(r.tool)}</span></td>
       <td class="num">${fmt(r.errors)}</td><td class="num">${fmt(r.recovered)}</td>
       <td class="num">${(r.avg_to_recover||0).toFixed(1)}</td>
-      <td class="num" style="color:${bad?'#f85149':'#8b949e'}">${fmt(r.max_streak)}</td></tr>`;
+      <td class="num" style="color:${bad?'var(--red)':'var(--muted)'}">${fmt(r.max_streak)}</td></tr>`;
   }
   document.getElementById('recoveryPanel').innerHTML = html + `</tbody></table>`;
 }
@@ -291,11 +442,11 @@ async function loadCacheAdvisor(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/cache-advisor'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('cacheAdvPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Cache advisor — session cache-hit thấp & tốn kém</div>`;
+  let html = `<div class="lbl">Cache advisor — session cache-hit thấp & tốn kém</div>`;
   for(const r of rows){
     html += `<div class="finding sev-med" style="cursor:pointer" onclick='openSession(${JSON.stringify(r.session_id)})'>
       <b class="mono">${shortId(r.session_id)}</b> ${esc(r.project||'')} · cache-hit
-      <b style="color:#f85149">${Math.round((r.cache_hit||0)*100)}%</b> · cost ${money(r.cost)}
+      <b style="color:var(--red)">${Math.round((r.cache_hit||0)*100)}%</b> · cost ${money(r.cost)}
       <div class="toks-mini">${esc(r.note||'')}</div></div>`;
   }
   document.getElementById('cacheAdvPanel').innerHTML = html;
@@ -306,30 +457,29 @@ async function loadHealthTrend(project){
   const d = await j('/api/health-trend'+q).catch(()=>[]);
   if(d.length<2){ document.getElementById('healthTrend').innerHTML=''; return; }
   let bars = d.map(x=>{
-    const h = Math.round((x.avg_health||0)/100*60)+2;
-    const col = x.avg_health>=80?'#3fb950':(x.avg_health>=50?'#d29922':'#f85149');
+    const h = Math.round((x.avg_health||0)/100*66)+2;
+    const col = x.avg_health>=80?'var(--green)':(x.avg_health>=50?'var(--amber)':'var(--red)');
     return `<div class="bar" title="${x.week}: health ${(x.avg_health||0).toFixed(0)} · ${fmt(x.sessions)} session · ${money(x.cost)}">
               <div class="barfill" style="height:${h}px;background:${col}"></div>
               <div class="barlbl">${(x.week||'').replace(/^\d+-/,'')}</div></div>`;
   }).join('');
   document.getElementById('healthTrend').innerHTML =
-    `<div class="lbl" style="margin-top:18px">Health trend — điểm sức khỏe TB theo tuần</div><div class="bars">${bars}</div>`;
+    `<div class="lbl">Health trend — điểm sức khỏe TB theo tuần</div><div class="bars">${bars}</div>`;
 }
 
 async function loadLeaderboard(){
   const rows = await j('/api/leaderboard?'+rq()).catch(()=>[]);
   if(rows.length<2){ document.getElementById('leaderboard').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Repo leaderboard</div>
+  let html = `<div class="lbl">Repo leaderboard</div>
     <table><thead><tr><th>Repo</th><th class="num">sessions</th><th class="num">health TB</th>
       <th class="num">rework</th><th class="num">lỗi tool</th><th class="num">cost</th></tr></thead><tbody>`;
   for(const r of rows){
-    const hc = r.avg_health>=80?'#3fb950':(r.avg_health>=50?'#d29922':'#f85149');
-    html += `<tr style="cursor:pointer" onclick='selectRepo(${JSON.stringify(r.project==='(không rõ)'?'':r.project)})'>
+    html += `<tr onclick='selectRepo(${JSON.stringify(r.project==='(không rõ)'?'':r.project)})'>
       <td>${esc(r.project)}</td><td class="num">${fmt(r.sessions)}</td>
-      <td class="num" style="color:${hc};font-weight:600">${(r.avg_health||0).toFixed(0)}</td>
+      <td class="num">${healthBadge(Math.round(r.avg_health||0))}</td>
       <td class="num">${fmt(r.rework)}</td>
       <td class="num">${((r.error_rate||0)*100).toFixed(0)}%</td>
-      <td class="num" style="color:#3fb950">${money(r.cost)}</td></tr>`;
+      <td class="num tcost">${money(r.cost)}</td></tr>`;
   }
   document.getElementById('leaderboard').innerHTML = html + `</tbody></table>`;
 }
@@ -338,11 +488,11 @@ async function loadPromptInsights(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const d = await j('/api/prompt-insights'+q).catch(()=>null);
   if(!d || !d.buckets){ document.getElementById('promptPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:18px">Chất lượng prompt (theo độ dài)</div>
+  let html = `<div class="lbl">Chất lượng prompt (theo độ dài)</div>
     <table><thead><tr><th>Nhóm</th><th class="num">prompts</th><th class="num">turns TB</th><th class="num">cost TB</th></tr></thead><tbody>`;
   for(const b of d.buckets){
     html += `<tr style="cursor:default"><td>${esc(b.bucket)}</td><td class="num">${fmt(b.prompts)}</td>
-      <td class="num">${(b.avg_turns||0).toFixed(1)}</td><td class="num" style="color:#3fb950">${money(b.avg_cost)}</td></tr>`;
+      <td class="num">${(b.avg_turns||0).toFixed(1)}</td><td class="num tcost">${money(b.avg_cost)}</td></tr>`;
   }
   html += `</tbody></table>`;
   const r = d.recommendation||{};
@@ -356,7 +506,7 @@ async function loadAgents(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/agents'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('agentsPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Skill & subagent</div>
+  let html = `<div class="lbl">Skill & subagent</div>
     <table><thead><tr><th>Loại</th><th>Tên</th><th class="num">số lần</th><th class="num">lỗi</th><th class="num">TB</th></tr></thead><tbody>`;
   for(const a of rows){
     html += `<tr style="cursor:default"><td><span class="pill">${esc(a.kind)}</span></td>
@@ -370,10 +520,10 @@ async function loadErrorClusters(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/error-clusters'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('errClusterPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Lỗi hay lặp (failure modes)</div>
+  let html = `<div class="lbl">Lỗi hay lặp (failure modes)</div>
     <table><thead><tr><th class="num">số lần</th><th>Mẫu lỗi</th></tr></thead><tbody>`;
   for(const e of rows){
-    html += `<tr style="cursor:default"><td class="num" style="color:#f85149">${fmt(e.count)}</td>
+    html += `<tr style="cursor:default"><td class="num" style="color:var(--red)">${fmt(e.count)}</td>
       <td class="mono">${esc((e.sample||e.signature||'').slice(0,120))}</td></tr>`;
   }
   document.getElementById('errClusterPanel').innerHTML = html + `</tbody></table>`;
@@ -383,35 +533,35 @@ async function loadLive(project, c){
   // dựng khung 1 lần; các lần refresh sau chỉ thay #liveCards (đỡ giật/flicker)
   if(c && !document.getElementById('liveCards')){
     c.innerHTML = `<div class="lbl">Session hoạt động trong 10 phút qua — tự cập nhật
-      <span class="toks-mini">(near-realtime ~1–2s)</span></div><div id="liveCards"></div>`;
+      <span class="note">near-realtime ~1–2s</span></div><div id="liveCards"></div>`;
   }
   const cards = document.getElementById('liveCards'); if(!cards) return;
   const q = '?mins=10'+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/live'+q).catch(()=>[]);
-  if(!rows.length){ cards.innerHTML = `<div class="empty">Không có session nào đang chạy. Mở Claude Code và thao tác để thấy nó hiện lên đây.</div>`; return; }
+  if(!rows.length){ cards.innerHTML = `<div class="empty">${ic('live',32)}<div>Không có session nào đang chạy.<br>Mở Claude Code và thao tác để thấy nó hiện lên đây.</div></div>`; return; }
   const now = Date.now();
   cards.innerHTML = rows.map(s=>{
     const ageMs = s.last_activity ? (now - new Date(s.last_activity).getTime()) : 1e12;
     const running = ageMs < 90000; // <90s coi như đang chạy
-    const dotc = running ? '#3fb950' : '#d29922';
+    const dot = running ? '<span class="dot live"></span>' : '<span class="dot" style="background:var(--amber)"></span>';
     const age = ageMs<60000 ? Math.round(ageMs/1000)+'s trước' : Math.round(ageMs/60000)+'m trước';
     const act = (s.last_action||'').replace(/\s+/g,' ').slice(0,90);
     const tl = s.last_tool ? `🔧 ${esc(s.last_tool)}` : '💬';
     return `<div class="livecard" onclick='openSession(${JSON.stringify(s.session_id)})'>
       <div class="lc-top">
-        <span style="color:${dotc}">●</span>
+        ${dot}
         <b class="mono">${shortId(s.session_id)}</b>
         <span class="pill">${esc(s.project||'(không rõ)')}</span>
         <span class="pill">${esc(s.git_branch||'—')}</span>
         ${s.model?`<span class="pill">${esc(s.model)}</span>`:''}
-        <span class="time" style="margin-left:auto">${age}</span>
+        <span class="time" style="margin-left:auto;color:var(--muted);font-size:12px">${age}</span>
       </div>
       <div class="lc-act">${tl} · <span class="toks-mini">${esc(act)||'—'}</span></div>
       <div class="lc-meta">
         <span class="tin">in ${fmt(s.input_tokens)}</span> ·
         <span class="tout">out ${fmt(s.output_tokens)}</span> ·
         <span class="tcache">cached ${fmt(s.cache_read_tokens)}</span> ·
-        <span style="color:#3fb950">${money(s.cost_usd)}</span> ·
+        <span class="tcost">${money(s.cost_usd)}</span> ·
         ${fmt(s.events)} events</div>
     </div>`;
   }).join('');
@@ -420,26 +570,25 @@ async function loadLive(project, c){
 async function loadSessionsTab(project, c){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/sessions'+q);
-  if(!rows.length){ c.innerHTML = `<div class="empty">Chưa có session nào.</div>`; return; }
+  if(!rows.length){ c.innerHTML = `<div class="empty">${ic('sessions',32)}<div>Chưa có session nào.</div></div>`; return; }
   let html = `<table><thead><tr>
       <th>Session</th><th>Repo</th><th class="num" title="điểm sức khỏe 0–100">health</th><th>Branch</th><th>Hoạt động cuối</th>
       <th class="num">in</th><th class="num">out</th><th class="num">cached</th><th class="num">cost</th><th class="num">events</th>
     </tr></thead><tbody>`;
   for(const s of rows){
     const live = s.last_activity && (Date.now() - new Date(s.last_activity).getTime() < 5*60000);
-    const dot = live ? '<span title="đang hoạt động" style="color:#3fb950">● </span>' : '';
+    const dot = live ? '<span class="dot live" style="margin-right:6px"></span>' : '';
     const tagp = s.tag ? ` <span class="pill">${esc(s.tag)}</span>` : '';
-    const hc = s.health>=80?'#3fb950':(s.health>=50?'#d29922':'#f85149');
     html += `<tr onclick='openSession(${JSON.stringify(s.session_id)})'>
       <td class="mono">${dot}${shortId(s.session_id)}${tagp}</td>
       <td>${esc(s.project||'')}</td>
-      <td class="num" style="color:${hc};font-weight:600">${s.health??'—'}</td>
+      <td class="num">${healthBadge(s.health)}</td>
       <td><span class="pill">${esc(s.git_branch||'—')}</span></td>
       <td>${tstr(s.last_activity)}</td>
       <td class="num tin">${fmt(s.input_tokens)}</td>
       <td class="num tout">${fmt(s.output_tokens)}</td>
       <td class="num tcache">${fmt(s.cache_read_tokens)}</td>
-      <td class="num" style="color:#3fb950">${money(s.cost_usd)}</td>
+      <td class="num tcost">${money(s.cost_usd)}</td>
       <td class="num">${fmt(s.events)}</td></tr>`;
   }
   c.innerHTML = html + `</tbody></table>`;
@@ -449,7 +598,7 @@ async function loadSequences(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/sequences'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('seqPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Chuỗi tool phổ biến (A → B)</div>
+  let html = `<div class="lbl">Chuỗi tool phổ biến (A → B)</div>
     <table><thead><tr><th>Từ</th><th>Đến</th><th class="num">số lần</th></tr></thead><tbody>`;
   for(const r of rows){
     html += `<tr style="cursor:default"><td><span class="pill">${esc(r.from)}</span></td>
@@ -463,12 +612,12 @@ async function loadOutcomes(project){
   const rows = await j('/api/outcomes'+q).catch(()=>[]);
   const tagged = rows.filter(r=>r.outcome!=='(chưa tag)' && r.sessions>0);
   if(!tagged.length){ document.getElementById('outcomePanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Outcome correlation — tag → kết quả</div>
+  let html = `<div class="lbl">Outcome correlation — tag → kết quả</div>
     <table><thead><tr><th>Outcome</th><th class="num">sessions</th><th class="num">cost TB</th>
       <th class="num">token TB</th><th class="num">tool error</th></tr></thead><tbody>`;
   for(const r of rows){
     html += `<tr style="cursor:default"><td><span class="pill">${esc(r.outcome)}</span></td>
-      <td class="num">${fmt(r.sessions)}</td><td class="num" style="color:#3fb950">${money(r.avg_cost)}</td>
+      <td class="num">${fmt(r.sessions)}</td><td class="num tcost">${money(r.avg_cost)}</td>
       <td class="num">${fmt(r.avg_tokens)}</td><td class="num">${(r.error_rate*100).toFixed(0)}%</td></tr>`;
   }
   document.getElementById('outcomePanel').innerHTML = html + `</tbody></table>`;
@@ -481,14 +630,14 @@ async function loadHeatmap(project){
   const days=['CN','T2','T3','T4','T5','T6','T7'];
   const max = Math.max(...rows.map(r=>r.count),1);
   const grid={}; rows.forEach(r=>grid[r.dow+'-'+r.hour]=r.count);
-  let html = `<div class="lbl" style="margin-top:20px">Heatmap hoạt động (giờ UTC × thứ)</div><div class="heat">`;
+  let html = `<div class="lbl">Heatmap hoạt động (giờ UTC × thứ)</div><div class="heat">`;
   html += `<div class="heatrow"><div class="heatlbl"></div>`;
   for(let h=0;h<24;h++) html += `<div class="heath">${h%3===0?h:''}</div>`;
   html += `</div>`;
   for(let d=0;d<7;d++){
     html += `<div class="heatrow"><div class="heatlbl">${days[d]}</div>`;
-    for(let h=0;h<24;h++){ const c=grid[d+'-'+h]||0; const op=c?(0.15+0.85*c/max):0;
-      html += `<div class="heatcell" title="${days[d]} ${h}h: ${c}" style="background:rgba(88,166,255,${op})"></div>`; }
+    for(let h=0;h<24;h++){ const c=grid[d+'-'+h]||0; const op=c?(0.18+0.82*c/max):0;
+      html += `<div class="heatcell" title="${days[d]} ${h}h: ${c}" style="background:${c?`color-mix(in srgb,var(--accent) ${Math.round(op*100)}%,transparent)`:'var(--surface-3)'}"></div>`; }
     html += `</div>`;
   }
   document.getElementById('heatmapPanel').innerHTML = html + `</div>`;
@@ -497,8 +646,8 @@ async function loadHeatmap(project){
 async function loadFiles(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/files'+q).catch(()=>[]);
-  if(!rows.length){ document.getElementById('filesPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Hot files — agent động nhiều nhất</div>
+  if(!rows.length){ document.getElementById('filesPanel').innerHTML=`<div class="empty">${ic('files',32)}<div>Chưa có dữ liệu file.</div></div>`; return; }
+  let html = `<div class="lbl">Hot files — agent động nhiều nhất</div>
     <table><thead><tr><th>File</th><th class="num">edits</th><th class="num">reads</th><th class="num">tổng</th></tr></thead><tbody>`;
   for(const f of rows){
     html += `<tr style="cursor:default"><td class="mono">${esc(f.target)}</td>
@@ -511,11 +660,11 @@ async function loadSlowest(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/slowest'+q).catch(()=>[]);
   if(!rows.length){ document.getElementById('slowPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Thao tác chậm nhất</div>
+  let html = `<div class="lbl">Thao tác chậm nhất</div>
     <table><thead><tr><th>Tool</th><th>Target</th><th class="num">thời lượng</th></tr></thead><tbody>`;
   for(const t of rows){
-    html += `<tr style="cursor:pointer" onclick='openSession(${JSON.stringify(t.session_id)})'>
-      <td><span class="pill">🔧 ${esc(t.tool)}</span>${t.is_error?' <span class="pill" style="color:#f85149;border-color:#f85149">err</span>':''}</td>
+    html += `<tr onclick='openSession(${JSON.stringify(t.session_id)})'>
+      <td><span class="pill">🔧 ${esc(t.tool)}</span>${t.is_error?' <span class="pill err">err</span>':''}</td>
       <td class="mono">${esc((t.target||'').slice(0,60))}</td>
       <td class="num">${ms(t.duration_ms||0)}</td></tr>`;
   }
@@ -528,20 +677,20 @@ async function loadTrends(){
     if(d.length<2){ document.getElementById('trends').innerHTML=''; return; }
     const max = Math.max(...d.map(x=>x.input_tokens+x.output_tokens),1);
     let bars = d.map(x=>{
-      const h = Math.round((x.input_tokens+x.output_tokens)/max*60)+2;
+      const h = Math.round((x.input_tokens+x.output_tokens)/max*66)+2;
       return `<div class="bar" title="${x.label}: in ${fmt(x.input_tokens)} / out ${fmt(x.output_tokens)} · ${money(x.cost_usd)}">
                 <div class="barfill" style="height:${h}px"></div><div class="barlbl">${(x.label||'').slice(5)}</div></div>`;
     }).join('');
     document.getElementById('trends').innerHTML =
-      `<div class="lbl" style="margin-top:18px">Trends — token (in+out) theo ngày</div><div class="bars">${bars}</div>`;
+      `<div class="lbl">Trends — token (in+out) theo ngày</div><div class="bars">${bars}</div>`;
   } catch(e){}
 }
 
 async function loadTools(project){
   const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
   const rows = await j('/api/tools'+q);
-  if(!rows.length){ document.getElementById('toolsPanel').innerHTML=''; return; }
-  let html = `<div class="lbl" style="margin-top:20px">Tool & error analytics</div>
+  if(!rows.length){ document.getElementById('toolsPanel').innerHTML=`<div class="empty">${ic('tools',32)}<div>Chưa có dữ liệu tool.</div></div>`; return; }
+  let html = `<div class="lbl">Tool & error analytics</div>
     <table><thead><tr><th>Tool</th><th class="num">Số lần</th><th class="num">Lỗi</th>
       <th class="num">Tỉ lệ lỗi</th><th class="num">TB</th><th class="num">Max</th></tr></thead><tbody>`;
   for(const t of rows){
@@ -550,7 +699,7 @@ async function loadTools(project){
       <td><span class="pill">🔧 ${esc(t.tool)}</span></td>
       <td class="num">${fmt(t.count)}</td>
       <td class="num">${fmt(t.errors)}</td>
-      <td class="num" style="color:${bad?'#f85149':'#8b949e'}">${(t.error_rate*100).toFixed(0)}%</td>
+      <td class="num" style="color:${bad?'var(--red)':'var(--muted)'}">${(t.error_rate*100).toFixed(0)}%</td>
       <td class="num">${ms(t.avg_ms)}</td>
       <td class="num">${ms(t.max_ms)}</td></tr>`;
   }
@@ -573,24 +722,26 @@ async function openSession(id){
   const meta = (sess||[]).find(s=>s.session_id===id) || {};
   replayEvs = evs;
   const back = activeRepo===null ? 'selectRepo(null)' : `selectRepo(${JSON.stringify(activeRepo)})`;
-  let html = `<div class="crumbs"><a onclick="${back}">← Sessions</a> / <b class="mono">${esc(id)}</b>
-      <button class="tab" style="float:right" onclick='summarize(${JSON.stringify(id)},event)'>✨ Tóm tắt (LLM)</button>
-      <button class="tab" style="float:right;margin-right:6px" onclick='openReplay(event)'>▶ Replay</button>
-      <button class="tab ${autoFollow?'active':''}" id="followBtn" style="float:right;margin-right:6px" onclick='toggleFollow(event)'>${autoFollow?'🔴 Đang theo dõi':'⚪ Theo dõi'}</button></div>
+  let html = `<div class="crumbs"><a onclick="${back}">← Sessions</a> <span style="color:var(--muted)">/</span> <b class="mono">${esc(id)}</b>
+      <span style="margin-left:auto;display:flex;gap:7px">
+      <button class="btn ${autoFollow?'active':''}" id="followBtn" onclick='toggleFollow(event)'>${autoFollow?'🔴 Đang theo dõi':'⚪ Theo dõi'}</button>
+      <button class="btn" onclick='openReplay(event)'>▶ Replay</button>
+      <button class="btn" onclick='summarize(${JSON.stringify(id)},event)'>✨ Tóm tắt</button>
+      </span></div>
       <div id="summaryBox"></div>`;
   // tag & outcome
-  html += `<div style="margin:4px 0 10px">
+  html += `<div style="margin:4px 0 12px">
       <input class="taginput" id="tagIn" placeholder="tag (vd: bugfix, feature)" value="${esc(meta.tag||'')}">
       <select class="taginput" id="outIn">
         <option value="">— outcome —</option>
         ${['success','partial','fail'].map(o=>`<option ${meta.outcome===o?'selected':''}>${o}</option>`).join('')}
       </select>
-      <button class="tab" id="tagSave" onclick='saveTag(${JSON.stringify(id)})'>Lưu</button></div>`;
+      <button class="btn" id="tagSave" onclick='saveTag(${JSON.stringify(id)})'>Lưu</button></div>`;
   // OTEL (cost chính xác + LOC/commits) nếu có
   if(otel && (otel.otel_cost || otel.loc_added || otel.loc_removed || otel.commits)){
-    html += `<div class="finding sev-low" style="border-left-color:#3fb950">OTEL:
-      cost <b style="color:#3fb950">${money(otel.otel_cost)}</b> ·
-      LOC <span class="tin">+${fmt(otel.loc_added)}</span>/<span style="color:#f85149">-${fmt(otel.loc_removed)}</span> ·
+    html += `<div class="finding sev-low" style="border-left-color:var(--green)">OTEL:
+      cost <b class="tcost">${money(otel.otel_cost)}</b> ·
+      LOC <span class="tin">+${fmt(otel.loc_added)}</span>/<span style="color:var(--red)">-${fmt(otel.loc_removed)}</span> ·
       commits ${fmt(otel.commits)} · PR ${fmt(otel.prs)}</div>`;
   }
   // breakdown theo model (đổi model giữa session)
@@ -601,20 +752,20 @@ async function openSession(id){
       html += `<tr style="cursor:default"><td><span class="pill">${esc(m.model)}</span></td>
         <td class="num">${fmt(m.events)}</td><td class="num tin">${fmt(m.input_tokens)}</td>
         <td class="num tout">${fmt(m.output_tokens)}</td><td class="num tcache">${fmt(m.cache_read_tokens)}</td>
-        <td class="num" style="color:#3fb950">${money(m.cost_usd)}</td></tr>`;
+        <td class="num tcost">${money(m.cost_usd)}</td></tr>`;
     }
     html += `</tbody></table>`;
   }
   // friction / loop
   if(fric.length){
-    html += `<div class="lbl" style="margin-top:14px">Friction / loop</div>`;
+    html += `<div class="lbl">Friction / loop</div>`;
     for(const f of fric) html += `<div class="finding sev-${f.severity}">${esc(f.text)}</div>`;
   }
   // errors (debug nhanh)
   if(errs.length){
-    html += `<div class="lbl" style="margin-top:14px">Lỗi (${errs.length})</div>`;
+    html += `<div class="lbl">Lỗi (${errs.length})</div>`;
     for(const e of errs.slice(0,15)){
-      html += `<div class="ev open think" style="border-left-color:#f85149"><div class="head"><span class="role" style="color:#f85149">⚠ error</span><span class="time">${tstr(e.ts)}</span></div><div class="body"><pre>${esc(e.snippet)}</pre></div></div>`;
+      html += `<div class="ev open think" style="border-left-color:var(--red)"><div class="head"><span class="role" style="color:var(--red)">⚠ error</span><span class="time">${tstr(e.ts)}</span></div><div class="body"><pre>${esc(e.snippet)}</pre></div></div>`;
     }
   }
   // cost burn timeline — cost tích luỹ theo turn, đánh dấu turn đắt nhất
@@ -625,14 +776,14 @@ async function openSession(id){
       const maxC = Math.max(...costed.map(x=>x.c));
       const peak = costed.reduce((a,x)=>x.c>a.c?x:a, costed[0]);
       let bars = costed.map(x=>{
-        const h = Math.round(x.c/maxC*60)+2;
+        const h = Math.round(x.c/maxC*64)+2;
         const top = x===peak;
         return `<div class="bar" title="turn #${x.i+1} · ${money(x.c)}${top?' (đắt nhất)':''}">
-                  <div class="barfill" style="height:${h}px;background:${top?'#f85149':''}"></div></div>`;
+                  <div class="barfill" style="height:${h}px${top?';background:var(--red)':''}"></div></div>`;
       }).join('');
-      html += `<div class="lbl" style="margin-top:14px">Cost burn — chi phí theo turn
-        <span class="toks-mini">tổng ${money(total)} · đắt nhất ${money(peak.c)} (turn #${peak.i+1})</span></div>
-        <div class="bars" style="height:80px">${bars}</div>`;
+      html += `<div class="lbl">Cost burn — chi phí theo turn
+        <span class="note">tổng ${money(total)} · đắt nhất ${money(peak.c)} (turn #${peak.i+1})</span></div>
+        <div class="bars">${bars}</div>`;
     }
   }
   // breakdown theo prompt
@@ -649,9 +800,9 @@ async function openSession(id){
         <td class="num tin">${fmt(p.input_tokens)}</td><td class="num tout">${fmt(p.output_tokens)}</td>
         <td class="num tcache">${fmt(p.cache_read_tokens)}</td>
         <td class="num tcache" title="${fmt(p.thinking_blocks)} bước${tks}">${fmt(p.thinking_blocks)}</td>
-        <td class="num" style="color:#3fb950">${money(p.cost_usd)}</td></tr>`;
+        <td class="num tcost">${money(p.cost_usd)}</td></tr>`;
     }
-    html += `</tbody></table><div class="lbl" style="margin-top:18px">Timeline</div>`;
+    html += `</tbody></table><div class="lbl">Timeline</div>`;
   }
   html += `<div id="timeline">`;
   if(!evs.length){ html += `<div class="empty">Chưa có event (transcript có thể chưa được tail).</div>`; }
@@ -670,7 +821,7 @@ function eventCardHTML(e){
      <span class="tout">out ${fmt(e.output_tokens)}</span>
      <span class="tcache">cached ${fmt(e.cache_read_tokens)}</span></span>` : '';
   const tool = e.tool_name ? `<span class="pill">🔧 ${esc(e.tool_name)}</span>` : '';
-  const errp = e.tool_error ? `<span class="pill" style="color:#f85149;border-color:#f85149">⚠ error</span>` : '';
+  const errp = e.tool_error ? `<span class="pill err">⚠ error</span>` : '';
   let body = '';
   if(e.thinking) body += `<div class="lbl">thinking</div><pre class="think">${esc(e.thinking)}</pre>`;
   if(e.text) body += `<div class="lbl">text</div><pre>${esc(e.text)}</pre>`;
@@ -738,9 +889,9 @@ function openReplay(ev){
           <b>▶ Replay</b>
           <span id="rPos" class="toks-mini"></span>
           <span style="margin-left:auto"></span>
-          <button class="tab" onclick="replayStep(-1)">‹ Trước</button>
-          <button class="tab" onclick="replayStep(1)">Sau ›</button>
-          <button class="tab" onclick="closeReplay()">✕</button>
+          <button class="btn" onclick="replayStep(-1)">‹ Trước</button>
+          <button class="btn" onclick="replayStep(1)">Sau ›</button>
+          <button class="btn" onclick="closeReplay()">✕</button>
         </div>
         <div id="rBody" class="rbody"></div>
       </div>`;
@@ -765,9 +916,9 @@ function renderReplay(){
   const role = e.role || e.kind || '';
   let body = `<div class="head"><span class="role role-${role}">${esc(role)}</span>
     ${e.tool_name?`<span class="pill">🔧 ${esc(e.tool_name)}</span>`:''}
-    ${e.tool_error?`<span class="pill" style="color:#f85149;border-color:#f85149">⚠ error</span>`:''}
+    ${e.tool_error?`<span class="pill err">⚠ error</span>`:''}
     ${e.model?`<span class="pill">${esc(e.model)}</span>`:''}
-    ${e.cost_usd?`<span class="toks-mini" style="color:#3fb950">${money(e.cost_usd)}</span>`:''}</div>`;
+    ${e.cost_usd?`<span class="toks-mini tcost">${money(e.cost_usd)}</span>`:''}</div>`;
   if(e.thinking) body += `<div class="lbl">thinking</div><pre class="think">${esc(e.thinking)}</pre>`;
   if(e.text) body += `<div class="lbl">text</div><pre>${esc(e.text)}</pre>`;
   if(e.tool_input) body += `<div class="lbl">tool input</div><pre>${esc(e.tool_input)}</pre>`;
@@ -800,7 +951,7 @@ async function openInsights(){
   const list = await j('/api/insights').catch(()=>[]);
   const scope = activeRepo ? esc(activeRepo) : 'tất cả repo';
   let html = `<div class="crumbs">💡 Cross-session insight — phạm vi <b>${scope}</b>
-     <button class="tab" style="float:right" onclick="runAnalyze()">⚙ Phân tích ngay (LLM)</button></div>
+     <span style="margin-left:auto"><button class="btn primary" onclick="runAnalyze()">⚙ Phân tích ngay (LLM)</button></span></div>
      <div id="analyzeBox"></div>`;
   if(list.length){
     html += `<div class="lbl">Insight đã lưu</div>`;
@@ -855,6 +1006,8 @@ function connectWS(){
 }
 
 (async function init(){
+  let saved='dark'; try{ saved = localStorage.getItem('al-theme')||'dark'; }catch(e){}
+  applyTheme(saved);
   try { await loadTotals(); await loadRepos(); await selectRepo(null); }
   catch(e){ document.getElementById('main').innerHTML = `<div class="empty">Lỗi: ${esc(e.message)}</div>`; }
   connectWS();                       // live update qua WebSocket
