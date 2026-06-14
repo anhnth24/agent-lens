@@ -155,7 +155,7 @@ async function loadRepos(){
   el.innerHTML = html;
 }
 
-const TABS = [['sessions','Sessions'],['tools','Tools'],['files','Files'],['analytics','Phân tích']];
+const TABS = [['sessions','Sessions'],['tools','Tools'],['files','Files'],['analytics','Phân tích'],['quality','Chất lượng']];
 
 async function selectRepo(project){
   activeRepo = project; activeSession = null;
@@ -187,7 +187,71 @@ function loadTab(project){
   } else if(activeTab==='analytics'){
     c.innerHTML = `<div id="trends"></div><div id="outcomePanel"></div><div id="heatmapPanel"></div>`;
     loadTrends(); loadOutcomes(project); loadHeatmap(project);
+  } else if(activeTab==='quality'){
+    c.innerHTML = `<div id="digestPanel"></div><div id="promptPanel"></div><div id="agentsPanel"></div><div id="errClusterPanel"></div>`;
+    loadDigest(project); loadPromptInsights(project); loadAgents(project); loadErrorClusters(project);
   }
+}
+
+async function loadDigest(project){
+  const q = project ? ('?project='+encodeURIComponent(project)) : '';
+  const d = await j('/api/digest'+q).catch(()=>null);
+  if(!d){ document.getElementById('digestPanel').innerHTML=''; return; }
+  const up = d.cost_delta_pct>=0;
+  const delta = isFinite(d.cost_delta_pct) ? `${up?'▲':'▼'} ${Math.abs(d.cost_delta_pct).toFixed(0)}%` : '—';
+  document.getElementById('digestPanel').innerHTML =
+    `<div class="lbl">Digest 7 ngày qua</div>
+     <div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 4px">
+       <div class="stat"><div class="k">Sessions</div><div class="v">${fmt(d.sessions)}</div></div>
+       <div class="stat"><div class="k">Cost</div><div class="v" style="color:#3fb950">${money(d.cost)}</div></div>
+       <div class="stat"><div class="k">vs tuần trước</div><div class="v" style="color:${up?'#f85149':'#3fb950'}">${delta}</div></div>
+       <div class="stat"><div class="k">Tiết kiệm cache</div><div class="v tcache">${money(d.savings)}</div></div>
+     </div>`;
+}
+
+async function loadPromptInsights(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const d = await j('/api/prompt-insights'+q).catch(()=>null);
+  if(!d || !d.buckets){ document.getElementById('promptPanel').innerHTML=''; return; }
+  let html = `<div class="lbl" style="margin-top:18px">Chất lượng prompt (theo độ dài)</div>
+    <table><thead><tr><th>Nhóm</th><th class="num">prompts</th><th class="num">turns TB</th><th class="num">cost TB</th></tr></thead><tbody>`;
+  for(const b of d.buckets){
+    html += `<tr style="cursor:default"><td>${esc(b.bucket)}</td><td class="num">${fmt(b.prompts)}</td>
+      <td class="num">${(b.avg_turns||0).toFixed(1)}</td><td class="num" style="color:#3fb950">${money(b.avg_cost)}</td></tr>`;
+  }
+  html += `</tbody></table>`;
+  const r = d.recommendation||{};
+  if(r.candidates>0){
+    html += `<div class="finding sev-med">💡 ${fmt(r.candidates)} prompt dùng Opus nhưng ít tool/output nhỏ (cost ${money(r.candidate_cost)}) → cân nhắc model rẻ hơn. <span class="toks-mini">${esc(r.note||'')}</span></div>`;
+  }
+  document.getElementById('promptPanel').innerHTML = html;
+}
+
+async function loadAgents(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/agents'+q).catch(()=>[]);
+  if(!rows.length){ document.getElementById('agentsPanel').innerHTML=''; return; }
+  let html = `<div class="lbl" style="margin-top:20px">Skill & subagent</div>
+    <table><thead><tr><th>Loại</th><th>Tên</th><th class="num">số lần</th><th class="num">lỗi</th><th class="num">TB</th></tr></thead><tbody>`;
+  for(const a of rows){
+    html += `<tr style="cursor:default"><td><span class="pill">${esc(a.kind)}</span></td>
+      <td class="mono">${esc((a.name||'').slice(0,60))}</td><td class="num">${fmt(a.count)}</td>
+      <td class="num">${fmt(a.errors)}</td><td class="num">${ms(a.avg_ms)}</td></tr>`;
+  }
+  document.getElementById('agentsPanel').innerHTML = html + `</tbody></table>`;
+}
+
+async function loadErrorClusters(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/error-clusters'+q).catch(()=>[]);
+  if(!rows.length){ document.getElementById('errClusterPanel').innerHTML=''; return; }
+  let html = `<div class="lbl" style="margin-top:20px">Lỗi hay lặp (failure modes)</div>
+    <table><thead><tr><th class="num">số lần</th><th>Mẫu lỗi</th></tr></thead><tbody>`;
+  for(const e of rows){
+    html += `<tr style="cursor:default"><td class="num" style="color:#f85149">${fmt(e.count)}</td>
+      <td class="mono">${esc((e.sample||e.signature||'').slice(0,120))}</td></tr>`;
+  }
+  document.getElementById('errClusterPanel').innerHTML = html + `</tbody></table>`;
 }
 
 async function loadSessionsTab(project, c){

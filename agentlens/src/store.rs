@@ -405,6 +405,42 @@ pub fn friction(conn: &Connection, session_id: &str) -> Result<Value> {
             }));
         }
     }
+    // 4) retry: cùng 1 lệnh Bash chạy lặp nhiều lần
+    {
+        let mut stmt = conn.prepare(
+            r#"SELECT target, COUNT(*) c FROM tools
+               WHERE session_id=?1 AND tool_name='Bash' AND target<>''
+               GROUP BY target HAVING c>=3 ORDER BY c DESC LIMIT 5"#,
+        )?;
+        let rows = stmt.query_map(params![session_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (target, c) = row?;
+            findings.push(json!({
+                "kind": "retry",
+                "severity": if c >= 5 { "high" } else { "med" },
+                "text": format!("Lệnh chạy lại {} lần: {}", c, target),
+            }));
+        }
+    }
+    // 5) context bloat: cửa sổ context (cache_read 1 turn) lớn
+    {
+        let peak: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(cache_read_tokens),0) FROM events WHERE session_id=?1",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if peak > 150_000 {
+            findings.push(json!({
+                "kind": "context",
+                "severity": if peak > 300_000 { "high" } else { "med" },
+                "text": format!("Context lớn: tới {} token/turn (cân nhắc /compact hoặc chia nhỏ task)", peak),
+            }));
+        }
+    }
     Ok(Value::Array(findings))
 }
 
@@ -514,6 +550,168 @@ pub fn sequences(conn: &Connection, project: Option<&str>, from: Option<&str>) -
         .map(|((a, b), c)| json!({ "from": a, "to": b, "count": c }))
         .collect();
     Ok(Value::Array(out))
+}
+
+/// Chuẩn hoá 1 thông điệp lỗi thành "chữ ký" để gom cụm.
+fn error_signature(s: &str) -> String {
+    let first = s.lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_lowercase();
+    let mut out = String::new();
+    let mut prev_digit = false;
+    for ch in first.chars() {
+        if ch.is_ascii_digit() {
+            if !prev_digit { out.push('#'); }
+            prev_digit = true;
+        } else {
+            prev_digit = false;
+            out.push(if ch.is_whitespace() { ' ' } else { ch });
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect()
+}
+
+/// #2 Error clustering: gom lỗi giống nhau khắp các session → failure mode hay lặp.
+pub fn error_clusters(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    use std::collections::HashMap;
+    let sql = format!(
+        r#"SELECT COALESCE(e.tool_result,'') FROM events e JOIN sessions s ON s.session_id=e.session_id
+           WHERE e.tool_error=1{proj}{time}"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("e.ts", from, "AND"),
+    );
+    let f = |r: &rusqlite::Row| r.get::<_, String>(0);
+    let rows: Vec<String> = {
+        let mut st = conn.prepare(&sql)?;
+        match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        }
+    };
+    let mut groups: HashMap<String, (i64, String)> = HashMap::new();
+    for r in rows {
+        if r.trim().is_empty() { continue; }
+        let sig = error_signature(&r);
+        if sig.is_empty() { continue; }
+        let e = groups.entry(sig).or_insert((0, r.chars().take(160).collect()));
+        e.0 += 1;
+    }
+    let mut v: Vec<(String, (i64, String))> = groups.into_iter().collect();
+    v.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    let out: Vec<Value> = v.into_iter().take(15)
+        .map(|(sig, (c, sample))| json!({ "signature": sig, "count": c, "sample": sample }))
+        .collect();
+    Ok(Value::Array(out))
+}
+
+/// #3 Skill & subagent usage: Task/Skill/SlashCommand dùng nhiều, cost/lỗi.
+pub fn agents(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
+        r#"SELECT t.tool_name, COALESCE(NULLIF(t.target,''),'(không rõ)'),
+                  COUNT(*), COALESCE(SUM(t.is_error),0), COALESCE(AVG(t.duration_ms),0)
+           FROM tools t JOIN sessions s ON s.session_id=t.session_id
+           WHERE t.tool_name IN ('Task','Skill','SlashCommand'){proj}{time}
+           GROUP BY t.tool_name, t.target ORDER BY COUNT(*) DESC LIMIT 25"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("t.ts_use", from, "AND"),
+    );
+    let map = |r: &rusqlite::Row| {
+        Ok(json!({
+            "kind": r.get::<_, String>(0)?,
+            "name": r.get::<_, String>(1)?,
+            "count": r.get::<_, i64>(2)?,
+            "errors": r.get::<_, i64>(3)?,
+            "avg_ms": r.get::<_, f64>(4)? as i64,
+        }))
+    };
+    let out: Vec<Value> = match project {
+        Some(p) => { let mut st=conn.prepare(&sql)?; let v=st.query_map(params![p],map)?.collect::<rusqlite::Result<_>>()?; v }
+        None => { let mut st=conn.prepare(&sql)?; let v=st.query_map([],map)?.collect::<rusqlite::Result<_>>()?; v }
+    };
+    Ok(Value::Array(out))
+}
+
+/// #6+#7 Prompt quality (bucket theo độ dài) + gợi ý dùng model rẻ hơn ([Inference] heuristic).
+pub fn prompt_insights(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
+        r#"SELECT
+             (SELECT LENGTH(e2.text) FROM events e2 WHERE e2.session_id=ev.session_id
+                AND e2.prompt_id=ev.prompt_id AND e2.role='user' AND e2.text<>'' ORDER BY e2.ts LIMIT 1),
+             COUNT(*),
+             SUM(CASE WHEN ev.tool_name IS NOT NULL AND ev.tool_name<>'' THEN 1 ELSE 0 END),
+             COALESCE(SUM(ev.output_tokens),0),
+             COALESCE(SUM(ev.cost_usd),0),
+             MAX(COALESCE(ev.model,''))
+           FROM events ev JOIN sessions s ON s.session_id=ev.session_id
+           WHERE ev.prompt_id IS NOT NULL AND ev.prompt_id<>''{proj}{time}
+           GROUP BY ev.session_id, ev.prompt_id"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("ev.ts", from, "AND"),
+    );
+    let f = |r: &rusqlite::Row| Ok((
+        r.get::<_, Option<i64>>(0)?.unwrap_or(0),
+        r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?,
+        r.get::<_, f64>(4)?, r.get::<_, String>(5)?,
+    ));
+    let rows: Vec<(i64, i64, i64, i64, f64, String)> = {
+        let mut st = conn.prepare(&sql)?;
+        match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        }
+    };
+    // 3 bucket độ dài prompt
+    let labels = ["ngắn (<200)", "vừa (200–1000)", "dài (>1000)"];
+    let mut b = [(0i64, 0i64, 0f64); 3]; // (count, turns_sum, cost_sum)
+    let mut cand = 0i64;
+    let mut cand_cost = 0f64;
+    for (plen, turns, tool_turns, output, cost, model) in &rows {
+        let idx = if *plen < 200 { 0 } else if *plen <= 1000 { 1 } else { 2 };
+        b[idx].0 += 1; b[idx].1 += turns; b[idx].2 += cost;
+        // candidate dùng model rẻ hơn: opus + ít tool + output nhỏ
+        if model.to_lowercase().contains("opus") && *tool_turns <= 2 && *output < 3000 {
+            cand += 1; cand_cost += cost;
+        }
+    }
+    let buckets: Vec<Value> = labels.iter().enumerate().map(|(i, l)| {
+        let (c, t, cost) = b[i];
+        let cf = c.max(1) as f64;
+        json!({ "bucket": l, "prompts": c, "avg_turns": (t as f64 / cf), "avg_cost": cost / cf })
+    }).collect();
+    Ok(json!({
+        "buckets": buckets,
+        "recommendation": {
+            "candidates": cand,
+            "candidate_cost": cand_cost,
+            "note": "[Inference] prompt dùng Opus nhưng ít tool & output nhỏ → có thể dùng model rẻ hơn (Haiku/Sonnet)."
+        }
+    }))
+}
+
+/// #8 Weekly digest: 7 ngày gần nhất vs 7 ngày trước đó.
+pub fn digest(conn: &Connection, project: Option<&str>) -> Result<Value> {
+    use chrono::{Duration, Utc};
+    let d7 = (Utc::now() - Duration::days(7)).to_rfc3339();
+    let d14 = (Utc::now() - Duration::days(14)).to_rfc3339();
+    let proj = if project.is_some() { " AND s.project=?1" } else { "" };
+    let window = |lo: &str, hi: Option<&str>| -> Result<(i64, f64, f64)> {
+        let hi_c = hi.map(|h| format!(" AND e.ts < '{h}'")).unwrap_or_default();
+        let sql = format!(
+            r#"SELECT COUNT(DISTINCT e.session_id), COALESCE(SUM(e.cost_usd),0), COALESCE(SUM(e.cache_savings_usd),0)
+               FROM events e JOIN sessions s ON s.session_id=e.session_id
+               WHERE e.ts >= '{lo}'{hi_c}{proj}"#
+        );
+        let g = |r: &rusqlite::Row| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?, r.get::<_, f64>(2)?));
+        match project {
+            Some(p) => conn.query_row(&sql, params![p], g).map_err(Into::into),
+            None => conn.query_row(&sql, [], g).map_err(Into::into),
+        }
+    };
+    let (s_now, c_now, sav_now) = window(&d7, None)?;
+    let (s_prev, c_prev, _) = window(&d14, Some(&d7))?;
+    Ok(json!({
+        "sessions": s_now, "cost": c_now, "savings": sav_now,
+        "prev_sessions": s_prev, "prev_cost": c_prev,
+        "cost_delta_pct": if c_prev > 0.0 { (c_now - c_prev) / c_prev * 100.0 } else { 0.0 }
+    }))
 }
 
 pub fn set_tag(conn: &Connection, session_id: &str, tag: &str, outcome: &str) -> Result<()> {

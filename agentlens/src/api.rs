@@ -162,6 +162,45 @@ pub async fn session_metric(State(state): State<AppState>, Path(id): Path<String
     Ok(Json(store::session_metric(&conn, &id).map_err(err)?))
 }
 
+pub async fn error_clusters(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::error_clusters(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn agents(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::agents(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn prompt_insights(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::prompt_insights(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn digest(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::digest(&conn, project).map_err(err)?))
+}
+
 /// OTLP/HTTP JSON metrics receiver (FR-3): cost/LOC/commits chính xác từ OpenTelemetry.
 pub async fn otlp_metrics(State(state): State<AppState>, Json(v): Json<Value>) -> StatusCode {
     let deltas = crate::otel::parse_metrics(&v);
