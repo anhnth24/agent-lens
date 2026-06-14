@@ -5,33 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AgentLens — Claude Code sessions</title>
 <style>
+  /* ui-ux-pro-max: Data-Dense Dashboard · Fira Sans/Code · blue+amber */
+  @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap');
   :root{
-    --bg:#0b0e14; --surface:#11151c; --surface-2:#161b24; --surface-3:#1b212c;
-    --border:#222a36; --border-strong:#2e3744;
-    --fg:#e7ebf2; --fg-soft:#aeb6c2; --muted:#717c8b;
-    --accent:#6ea8fe; --accent-2:#a371f7; --accent-weak:rgba(110,168,254,.14);
-    --green:#3fb950; --amber:#e3a008; --red:#f85149;
-    --in:#3fb950; --out:#e0a93a; --cache:#a371f7;
+    /* dark — Developer Tool / IDE neutrals + blue primary, amber highlight */
+    --bg:#0f172a; --surface:#151d2e; --surface-2:#1a2336; --surface-3:#222d44;
+    --border:#293650; --border-strong:#3a4865;
+    --fg:#f1f5f9; --fg-soft:#c4cfde; --muted:#8a97ad;
+    --accent:#3b82f6; --accent-2:#a78bfa; --accent-weak:rgba(59,130,246,.16);
+    --green:#34d399; --amber:#fbbf24; --red:#f87171;
+    --in:#34d399; --out:#fbbf24; --cache:#a78bfa;
     --radius:14px; --radius-sm:9px; --radius-pill:999px;
-    --shadow:0 1px 2px rgba(0,0,0,.35),0 8px 28px rgba(0,0,0,.30);
-    --shadow-sm:0 1px 2px rgba(0,0,0,.30);
-    --grad:linear-gradient(135deg,#6ea8fe,#a371f7);
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.32);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+    --grad:linear-gradient(135deg,#3b82f6,#6366f1);
     --hdr-h:60px; --tb-h:54px;
   }
   [data-theme="light"]{
-    --bg:#f5f7fb; --surface:#ffffff; --surface-2:#f2f5f9; --surface-3:#e9eef4;
-    --border:#e4e9f0; --border-strong:#d2dae4;
-    --fg:#0f1828; --fg-soft:#3c4658; --muted:#69748a;
-    --accent:#2f6df0; --accent-2:#7c3aed; --accent-weak:rgba(47,109,240,.10);
-    --green:#1a9c46; --amber:#b4730a; --red:#dc2f2f;
-    --in:#1a9c46; --out:#b4730a; --cache:#7c3aed;
+    /* light — Data-Dense Dashboard: blue data + amber highlights (WCAG AA) */
+    --bg:#f6f8fc; --surface:#ffffff; --surface-2:#f1f5fb; --surface-3:#e6edf6;
+    --border:#e2e8f0; --border-strong:#cbd5e1;
+    --fg:#0f1c33; --fg-soft:#334155; --muted:#64748b;
+    --accent:#2563eb; --accent-2:#7c3aed; --accent-weak:rgba(37,99,235,.10);
+    --green:#15803d; --amber:#b45309; --red:#dc2626;
+    --in:#15803d; --out:#b45309; --cache:#7c3aed;
     --shadow:0 1px 2px rgba(15,23,42,.05),0 10px 30px rgba(15,23,42,.08);
     --shadow-sm:0 1px 2px rgba(15,23,42,.06);
+    --grad:linear-gradient(135deg,#2563eb,#7c3aed);
   }
   *{ box-sizing:border-box; }
   html,body{ height:100%; }
   body{ margin:0; background:var(--bg); color:var(--fg);
-    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
+    font:14px/1.55 "Fira Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased; }
   ::-webkit-scrollbar{ width:11px; height:11px; }
   ::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
@@ -117,7 +122,7 @@
   tbody tr:last-child td{ border-bottom:none; }
   tbody tr:hover{ background:var(--accent-weak); }
   .num{ text-align:right; }
-  .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
+  .mono{ font-family:"Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
 
   .pill{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:var(--radius-pill); font-size:11px;
     font-weight:600; background:var(--surface-2); border:1px solid var(--border); color:var(--fg-soft); }
@@ -167,7 +172,7 @@
   .ev.open .head{ border-bottom:1px solid var(--border); margin-bottom:8px; }
   pre{ white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
     padding:10px 12px; margin:6px 0; max-height:360px; overflow:auto; font-size:12.5px;
-    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    font-family:"Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
   .think{ border-left:3px solid var(--accent-2); }
 
   /* ── inputs ── */
@@ -202,6 +207,27 @@
   .replay .rhead{ display:flex; gap:9px; align-items:center; padding:13px 16px; border-bottom:1px solid var(--border); background:var(--surface-2); }
   .replay .rbody{ padding:14px 18px; overflow:auto; }
   .replay .rbody .head{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  svg{ flex:none; }
+
+  /* ── a11y (ui-ux-pro-max checklist) ── */
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+  button,.tab,.repo,.livecard,tbody tr,.seg button{ outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+  }
+  /* ── responsive ── */
+  @media (max-width:1024px){
+    .layout{ grid-template-columns:230px 1fr; }
+    .brand .sub{ display:none; }
+  }
+  @media (max-width:760px){
+    .layout{ grid-template-columns:1fr; }
+    aside{ display:none; }
+    .toolbar{ flex-wrap:wrap; height:auto; padding:10px 14px; }
+    .searchwrap{ max-width:none; order:3; flex-basis:100%; }
+    header{ padding:0 12px; }
+    main{ padding:14px; }
+  }
 </style>
 </head>
 <body>
@@ -261,7 +287,18 @@ const ICONS = {
   quality:'<circle cx="12" cy="8" r="5"/><path d="M8.5 12.5 7 22l5-3 5 3-1.5-9.5"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  wrench:'<path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L3 18l3 3 6.5-6.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.1-.5-.5-2.1 2.7-2.7z"/>',
+  bulb:'<path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/>',
+  sparkles:'<path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/>',
+  play:'<path d="M7 4v16l13-8z"/>',
+  alert:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  record:'<circle cx="12" cy="12" r="5" fill="#ef4444" stroke="none"/>',
+  circle:'<circle cx="12" cy="12" r="7"/>',
+  message:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.6 1.6 0 0 0-2.7 1.1 2 2 0 0 1-4 0 1.6 1.6 0 0 0-2.7-1.1 2 2 0 1 1-2.8-2.8 1.6 1.6 0 0 0-1.1-2.7 2 2 0 0 1 0-4 1.6 1.6 0 0 0 1.1-2.7 2 2 0 1 1 2.8-2.8 1.6 1.6 0 0 0 2.7-1.1 2 2 0 0 1 4 0 1.6 1.6 0 0 0 2.7 1.1 2 2 0 1 1 2.8 2.8 1.6 1.6 0 0 0 1.1 2.7 2 2 0 0 1 0 4 1.6 1.6 0 0 0-1.4 1z"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
 };
+function toolPill(name){ return `<span class="pill">${ic('wrench',12)} ${esc(name)}</span>`; }
 const TABICON = {live:'live',sessions:'sessions',tools:'tools',files:'files',analytics:'analytics',quality:'quality'};
 function ic(name,sz=15){ return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
 
@@ -389,7 +426,7 @@ async function loadRightsizing(project){
       <th class="num">nếu Sonnet</th><th class="num">nếu Haiku</th><th class="num">tiết kiệm tối đa</th></tr></thead><tbody>`;
   for(const r of rows){
     const save = r.has_opus ? r.save_haiku : 0;
-    const flag = r.has_opus && save>0.05 ? ' 💡' : '';
+    const flag = r.has_opus && save>0.05 ? ' '+ic('bulb',14) : '';
     html += `<tr style="cursor:default"><td>${esc(r.category)}${flag}</td>
       <td class="num">${fmt(r.events)}</td>
       <td class="num tcost">${money(r.current_cost)}</td>
@@ -398,7 +435,7 @@ async function loadRightsizing(project){
       <td class="num" style="color:${save>0.05?'var(--amber)':'var(--muted)'}">${money(save)}</td></tr>`;
   }
   html += `</tbody></table>`;
-  if(totSave>0.05) html += `<div class="finding sev-med">💡 Nếu các nhóm việc đơn giản dùng Haiku thay Opus, ước tính tiết kiệm tới ${money(totSave)} (theo token đã ghi).</div>`;
+  if(totSave>0.05) html += `<div class="finding sev-med">${ic('bulb',14)} Nếu các nhóm việc đơn giản dùng Haiku thay Opus, ước tính tiết kiệm tới ${money(totSave)} (theo token đã ghi).</div>`;
   document.getElementById('rightsizePanel').innerHTML = html;
 }
 
@@ -430,7 +467,7 @@ async function loadRecovery(project){
       <th class="num" title="chuỗi lỗi liên tiếp dài nhất">streak dài nhất</th></tr></thead><tbody>`;
   for(const r of rows){
     const bad = r.max_streak>=3;
-    html += `<tr style="cursor:default"><td><span class="pill">🔧 ${esc(r.tool)}</span></td>
+    html += `<tr style="cursor:default"><td><span class="pill">${ic('wrench',13)} ${esc(r.tool)}</span></td>
       <td class="num">${fmt(r.errors)}</td><td class="num">${fmt(r.recovered)}</td>
       <td class="num">${(r.avg_to_recover||0).toFixed(1)}</td>
       <td class="num" style="color:${bad?'var(--red)':'var(--muted)'}">${fmt(r.max_streak)}</td></tr>`;
@@ -497,7 +534,7 @@ async function loadPromptInsights(project){
   html += `</tbody></table>`;
   const r = d.recommendation||{};
   if(r.candidates>0){
-    html += `<div class="finding sev-med">💡 ${fmt(r.candidates)} prompt dùng Opus nhưng ít tool/output nhỏ (cost ${money(r.candidate_cost)}) → cân nhắc model rẻ hơn. <span class="toks-mini">${esc(r.note||'')}</span></div>`;
+    html += `<div class="finding sev-med">${ic('bulb',14)} ${fmt(r.candidates)} prompt dùng Opus nhưng ít tool/output nhỏ (cost ${money(r.candidate_cost)}) → cân nhắc model rẻ hơn. <span class="toks-mini">${esc(r.note||'')}</span></div>`;
   }
   document.getElementById('promptPanel').innerHTML = html;
 }
@@ -546,7 +583,7 @@ async function loadLive(project, c){
     const dot = running ? '<span class="dot live"></span>' : '<span class="dot" style="background:var(--amber)"></span>';
     const age = ageMs<60000 ? Math.round(ageMs/1000)+'s trước' : Math.round(ageMs/60000)+'m trước';
     const act = (s.last_action||'').replace(/\s+/g,' ').slice(0,90);
-    const tl = s.last_tool ? `🔧 ${esc(s.last_tool)}` : '💬';
+    const tl = s.last_tool ? `${ic('wrench',13)} ${esc(s.last_tool)}` : ic('message',13);
     return `<div class="livecard" onclick='openSession(${JSON.stringify(s.session_id)})'>
       <div class="lc-top">
         ${dot}
@@ -664,7 +701,7 @@ async function loadSlowest(project){
     <table><thead><tr><th>Tool</th><th>Target</th><th class="num">thời lượng</th></tr></thead><tbody>`;
   for(const t of rows){
     html += `<tr onclick='openSession(${JSON.stringify(t.session_id)})'>
-      <td><span class="pill">🔧 ${esc(t.tool)}</span>${t.is_error?' <span class="pill err">err</span>':''}</td>
+      <td><span class="pill">${ic('wrench',13)} ${esc(t.tool)}</span>${t.is_error?' <span class="pill err">err</span>':''}</td>
       <td class="mono">${esc((t.target||'').slice(0,60))}</td>
       <td class="num">${ms(t.duration_ms||0)}</td></tr>`;
   }
@@ -696,7 +733,7 @@ async function loadTools(project){
   for(const t of rows){
     const bad = t.error_rate >= 0.1;
     html += `<tr style="cursor:default">
-      <td><span class="pill">🔧 ${esc(t.tool)}</span></td>
+      <td><span class="pill">${ic('wrench',13)} ${esc(t.tool)}</span></td>
       <td class="num">${fmt(t.count)}</td>
       <td class="num">${fmt(t.errors)}</td>
       <td class="num" style="color:${bad?'var(--red)':'var(--muted)'}">${(t.error_rate*100).toFixed(0)}%</td>
@@ -724,9 +761,9 @@ async function openSession(id){
   const back = activeRepo===null ? 'selectRepo(null)' : `selectRepo(${JSON.stringify(activeRepo)})`;
   let html = `<div class="crumbs"><a onclick="${back}">← Sessions</a> <span style="color:var(--muted)">/</span> <b class="mono">${esc(id)}</b>
       <span style="margin-left:auto;display:flex;gap:7px">
-      <button class="btn ${autoFollow?'active':''}" id="followBtn" onclick='toggleFollow(event)'>${autoFollow?'🔴 Đang theo dõi':'⚪ Theo dõi'}</button>
-      <button class="btn" onclick='openReplay(event)'>▶ Replay</button>
-      <button class="btn" onclick='summarize(${JSON.stringify(id)},event)'>✨ Tóm tắt</button>
+      <button class="btn ${autoFollow?'active':''}" id="followBtn" onclick='toggleFollow(event)'>${autoFollow?ic('record',13)+' Đang theo dõi':ic('circle',13)+' Theo dõi'}</button>
+      <button class="btn" onclick='openReplay(event)'>${ic('play',14)} Replay</button>
+      <button class="btn" onclick='summarize(${JSON.stringify(id)},event)'>${ic('sparkles',14)} Tóm tắt</button>
       </span></div>
       <div id="summaryBox"></div>`;
   // tag & outcome
@@ -765,7 +802,7 @@ async function openSession(id){
   if(errs.length){
     html += `<div class="lbl">Lỗi (${errs.length})</div>`;
     for(const e of errs.slice(0,15)){
-      html += `<div class="ev open think" style="border-left-color:var(--red)"><div class="head"><span class="role" style="color:var(--red)">⚠ error</span><span class="time">${tstr(e.ts)}</span></div><div class="body"><pre>${esc(e.snippet)}</pre></div></div>`;
+      html += `<div class="ev open think" style="border-left-color:var(--red)"><div class="head"><span class="role" style="color:var(--red)">${ic('alert',12)} error</span><span class="time">${tstr(e.ts)}</span></div><div class="body"><pre>${esc(e.snippet)}</pre></div></div>`;
     }
   }
   // cost burn timeline — cost tích luỹ theo turn, đánh dấu turn đắt nhất
@@ -820,8 +857,8 @@ function eventCardHTML(e){
   const tk = hasTok ? `<span class="toks-mini">· <span class="tin">in ${fmt(e.input_tokens)}</span>
      <span class="tout">out ${fmt(e.output_tokens)}</span>
      <span class="tcache">cached ${fmt(e.cache_read_tokens)}</span></span>` : '';
-  const tool = e.tool_name ? `<span class="pill">🔧 ${esc(e.tool_name)}</span>` : '';
-  const errp = e.tool_error ? `<span class="pill err">⚠ error</span>` : '';
+  const tool = e.tool_name ? `<span class="pill">${ic('wrench',13)} ${esc(e.tool_name)}</span>` : '';
+  const errp = e.tool_error ? `<span class="pill err">${ic('alert',12)} error</span>` : '';
   let body = '';
   if(e.thinking) body += `<div class="lbl">thinking</div><pre class="think">${esc(e.thinking)}</pre>`;
   if(e.text) body += `<div class="lbl">text</div><pre>${esc(e.text)}</pre>`;
@@ -839,7 +876,7 @@ function toggleFollow(ev){
   if(ev) ev.stopPropagation();
   autoFollow = !autoFollow;
   const b = document.getElementById('followBtn');
-  if(b){ b.textContent = autoFollow?'🔴 Đang theo dõi':'⚪ Theo dõi'; b.classList.toggle('active', autoFollow); }
+  if(b){ b.innerHTML = autoFollow?ic('record',13)+' Đang theo dõi':ic('circle',13)+' Theo dõi'; b.classList.toggle('active', autoFollow); }
   if(autoFollow) followAppend();
 }
 
@@ -871,7 +908,7 @@ async function summarize(id, ev){
     const t = await r.text();
     if(!r.ok){ box.innerHTML = `<div class="ev open think"><div class="body"><div class="lbl">LLM</div><pre>${esc(t)}</pre></div></div>`; return; }
     const d = JSON.parse(t);
-    box.innerHTML = `<div class="ev open think"><div class="head"><span class="role">✨ Tóm tắt & gợi ý</span></div>
+    box.innerHTML = `<div class="ev open think"><div class="head"><span class="role">${ic('sparkles',14)} Tóm tắt & gợi ý</span></div>
        <div class="body"><pre>${esc(d.summary)}</pre></div></div>`;
   } catch(e){ box.innerHTML = `<div class="ev open"><div class="body"><pre>${esc(e.message)}</pre></div></div>`; }
 }
@@ -886,7 +923,7 @@ function openReplay(ev){
     ov.id = 'replayOverlay'; ov.className = 'overlay';
     ov.innerHTML = `<div class="replay">
         <div class="rhead">
-          <b>▶ Replay</b>
+          <b>${ic('play',14)} Replay</b>
           <span id="rPos" class="toks-mini"></span>
           <span style="margin-left:auto"></span>
           <button class="btn" onclick="replayStep(-1)">‹ Trước</button>
@@ -915,8 +952,8 @@ function renderReplay(){
   document.getElementById('rPos').textContent = `${replayIdx+1} / ${replayEvs.length} · ${tstr(e.ts)}`;
   const role = e.role || e.kind || '';
   let body = `<div class="head"><span class="role role-${role}">${esc(role)}</span>
-    ${e.tool_name?`<span class="pill">🔧 ${esc(e.tool_name)}</span>`:''}
-    ${e.tool_error?`<span class="pill err">⚠ error</span>`:''}
+    ${e.tool_name?`<span class="pill">${ic('wrench',13)} ${esc(e.tool_name)}</span>`:''}
+    ${e.tool_error?`<span class="pill err">${ic('alert',12)} error</span>`:''}
     ${e.model?`<span class="pill">${esc(e.model)}</span>`:''}
     ${e.cost_usd?`<span class="toks-mini tcost">${money(e.cost_usd)}</span>`:''}</div>`;
   if(e.thinking) body += `<div class="lbl">thinking</div><pre class="think">${esc(e.thinking)}</pre>`;
@@ -938,7 +975,7 @@ async function doSearch(){
   for(const r of rows){
     html += `<div class="ev open" style="cursor:pointer" onclick='openSession(${JSON.stringify(r.session_id)})'>
       <div class="head"><span class="role role-${r.role||''}">${esc(r.role||'')}</span>
-        ${r.tool_name?`<span class="pill">🔧 ${esc(r.tool_name)}</span>`:''}
+        ${r.tool_name?`<span class="pill">${ic('wrench',13)} ${esc(r.tool_name)}</span>`:''}
         <span class="time">${tstr(r.ts)}</span><span class="pill">${esc(r.project||'')}</span>
         <span class="mono toks-mini">${shortId(r.session_id)}</span></div>
       <div class="body"><pre>${esc(r.snippet)}</pre></div></div>`;
@@ -950,8 +987,8 @@ async function openInsights(){
   activeSession = null;
   const list = await j('/api/insights').catch(()=>[]);
   const scope = activeRepo ? esc(activeRepo) : 'tất cả repo';
-  let html = `<div class="crumbs">💡 Cross-session insight — phạm vi <b>${scope}</b>
-     <span style="margin-left:auto"><button class="btn primary" onclick="runAnalyze()">⚙ Phân tích ngay (LLM)</button></span></div>
+  let html = `<div class="crumbs">${ic('bulb',14)} Cross-session insight — phạm vi <b>${scope}</b>
+     <span style="margin-left:auto"><button class="btn primary" onclick="runAnalyze()">${ic('settings',14)} Phân tích ngay (LLM)</button></span></div>
      <div id="analyzeBox"></div>`;
   if(list.length){
     html += `<div class="lbl">Insight đã lưu</div>`;
@@ -971,7 +1008,7 @@ async function runAnalyze(){
     const t = await r.text();
     if(!r.ok){ box.innerHTML = `<div class="ev open think"><div class="body"><pre>${esc(t)}</pre></div></div>`; return; }
     const d = JSON.parse(t);
-    box.innerHTML = `<div class="ev open think"><div class="head"><span class="role">💡 ${esc(d.scope)}</span></div><div class="body"><pre>${esc(d.content)}</pre></div></div>`;
+    box.innerHTML = `<div class="ev open think"><div class="head"><span class="role">${ic('bulb',14)} ${esc(d.scope)}</span></div><div class="body"><pre>${esc(d.content)}</pre></div></div>`;
   } catch(e){ box.innerHTML = `<div class="ev open"><div class="body"><pre>${esc(e.message)}</pre></div></div>`; }
 }
 async function saveTag(id){
