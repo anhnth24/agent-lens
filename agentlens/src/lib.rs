@@ -5,6 +5,7 @@ mod api;
 mod hooks;
 mod jsonl;
 mod llm;
+mod otel;
 mod pricing;
 mod store;
 mod tailer;
@@ -107,6 +108,11 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/slowest", get(api::slowest))
         .route("/api/outcomes", get(api::outcomes))
         .route("/api/heatmap", get(api::heatmap))
+        .route("/api/sequences", get(api::sequences))
+        .route("/api/sessions/:id/otel", get(api::session_metric))
+        .route("/v1/metrics", post(api::otlp_metrics))
+        .route("/v1/logs", post(api::otlp_accept))
+        .route("/v1/traces", post(api::otlp_accept))
         .route("/api/search", get(api::search))
         .route("/api/insights", get(api::list_insights))
         .route("/api/insights/analyze", post(api::analyze_insights))

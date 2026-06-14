@@ -36,10 +36,20 @@ CREATE TABLE IF NOT EXISTS events (
   cache_read_tokens     INTEGER DEFAULT 0,
   cache_creation_tokens INTEGER DEFAULT 0,
   cost_usd              REAL DEFAULT 0,
+  cache_savings_usd     REAL DEFAULT 0,
   tool_error            INTEGER DEFAULT 0,
   thinking_blocks       INTEGER DEFAULT 0,
   git_branch            TEXT,
   cwd                   TEXT
+);
+CREATE TABLE IF NOT EXISTS session_metrics (
+  session_id   TEXT PRIMARY KEY,
+  otel_cost    REAL DEFAULT 0,
+  loc_added    INTEGER DEFAULT 0,
+  loc_removed  INTEGER DEFAULT 0,
+  commits      INTEGER DEFAULT 0,
+  prs          INTEGER DEFAULT 0,
+  updated_at   TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS tools (
   tool_use_id  TEXT PRIMARY KEY,
@@ -92,6 +102,7 @@ pub fn open(path: &std::path::Path) -> Result<Connection> {
         "ALTER TABLE sessions ADD COLUMN tag TEXT DEFAULT ''",
         "ALTER TABLE sessions ADD COLUMN outcome TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN thinking_blocks INTEGER DEFAULT 0",
+        "ALTER TABLE events ADD COLUMN cache_savings_usd REAL DEFAULT 0",
     ] {
         let _ = conn.execute(stmt, []);
     }
@@ -142,18 +153,20 @@ pub fn upsert_session_from_entry(
 }
 
 pub fn insert_event(conn: &Connection, e: &Entry, _project: &str) -> Result<usize> {
+    let model = e.model.as_deref().unwrap_or("");
     let cost = crate::pricing::cost(
-        e.model.as_deref().unwrap_or(""),
+        model,
         e.input_tokens,
         e.output_tokens,
         e.cache_read_tokens,
         e.cache_creation_tokens,
     );
+    let savings = crate::pricing::cache_savings(model, e.cache_read_tokens);
     let n = conn.execute(
         r#"INSERT OR IGNORE INTO events
            (event_id,session_id,prompt_id,ts,kind,role,text,thinking,tool_name,tool_input,tool_result,
-            model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,cost_usd,tool_error,thinking_blocks,git_branch,cwd)
-           VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)"#,
+            model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,cost_usd,cache_savings_usd,tool_error,thinking_blocks,git_branch,cwd)
+           VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)"#,
         params![
             e.uuid,
             e.session_id,
@@ -172,6 +185,7 @@ pub fn insert_event(conn: &Connection, e: &Entry, _project: &str) -> Result<usiz
             e.cache_read_tokens,
             e.cache_creation_tokens,
             cost,
+            savings,
             e.tool_error as i64,
             e.thinking_blocks,
             e.git_branch,
@@ -465,12 +479,90 @@ pub fn slowest(conn: &Connection, project: Option<&str>, from: Option<&str>) -> 
     Ok(Value::Array(out))
 }
 
+/// Tool-sequence patterns: cặp tool liên tiếp (A→B) phổ biến nhất.
+pub fn sequences(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    use std::collections::HashMap;
+    let sql = format!(
+        r#"SELECT t.session_id, t.tool_name FROM tools t JOIN sessions s ON s.session_id=t.session_id
+           WHERE t.tool_name<>''{proj}{time} ORDER BY t.session_id, t.ts_use"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("t.ts_use", from, "AND"),
+    );
+    let f = |r: &rusqlite::Row| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?));
+    let rows: Vec<(String, String)> = {
+        let mut st = conn.prepare(&sql)?;
+        match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        }
+    };
+    let mut pairs: HashMap<(String, String), i64> = HashMap::new();
+    let mut prev: Option<(String, String)> = None; // (session, tool)
+    for (sess, tool) in rows {
+        if let Some((ps, pt)) = &prev {
+            if *ps == sess {
+                *pairs.entry((pt.clone(), tool.clone())).or_default() += 1;
+            }
+        }
+        prev = Some((sess, tool));
+    }
+    let mut v: Vec<((String, String), i64)> = pairs.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    let out: Vec<Value> = v
+        .into_iter()
+        .take(15)
+        .map(|((a, b), c)| json!({ "from": a, "to": b, "count": c }))
+        .collect();
+    Ok(Value::Array(out))
+}
+
 pub fn set_tag(conn: &Connection, session_id: &str, tag: &str, outcome: &str) -> Result<()> {
     conn.execute(
         "UPDATE sessions SET tag=?2, outcome=?3 WHERE session_id=?1",
         params![session_id, tag, outcome],
     )?;
     Ok(())
+}
+
+/// Cộng dồn metrics OTEL cho 1 session (giá trị coi như delta — [Unverified] temporality).
+pub fn upsert_otel(
+    conn: &Connection,
+    session_id: &str,
+    cost: f64,
+    loc_added: i64,
+    loc_removed: i64,
+    commits: i64,
+    prs: i64,
+) -> Result<()> {
+    conn.execute(
+        r#"INSERT INTO session_metrics(session_id,otel_cost,loc_added,loc_removed,commits,prs,updated_at)
+           VALUES(?1,?2,?3,?4,?5,?6,?7)
+           ON CONFLICT(session_id) DO UPDATE SET
+             otel_cost   = otel_cost   + excluded.otel_cost,
+             loc_added   = loc_added   + excluded.loc_added,
+             loc_removed = loc_removed + excluded.loc_removed,
+             commits     = commits     + excluded.commits,
+             prs         = prs         + excluded.prs,
+             updated_at  = excluded.updated_at"#,
+        params![session_id, cost, loc_added, loc_removed, commits, prs, chrono::Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+/// Metrics OTEL của 1 session (LOC/commits/cost chính xác nếu bật OTEL).
+pub fn session_metric(conn: &Connection, session_id: &str) -> Result<Value> {
+    conn.query_row(
+        "SELECT otel_cost,loc_added,loc_removed,commits,prs FROM session_metrics WHERE session_id=?1",
+        params![session_id],
+        |r| Ok(json!({
+            "otel_cost": r.get::<_, f64>(0)?,
+            "loc_added": r.get::<_, i64>(1)?,
+            "loc_removed": r.get::<_, i64>(2)?,
+            "commits": r.get::<_, i64>(3)?,
+            "prs": r.get::<_, i64>(4)?,
+        })),
+    )
+    .or_else(|_| Ok(json!({"otel_cost":0.0,"loc_added":0,"loc_removed":0,"commits":0,"prs":0})))
 }
 
 pub fn insert_insight(conn: &Connection, scope: &str, content: &str) -> Result<()> {
@@ -517,8 +609,9 @@ pub fn recompute_costs(conn: &Connection) -> Result<()> {
     for m in models {
         let p = crate::pricing::for_model(&m);
         conn.execute(
-            r#"UPDATE events SET cost_usd =
-                 (input_tokens*?2 + output_tokens*?3 + cache_read_tokens*?4 + cache_creation_tokens*?5)/1000000.0
+            r#"UPDATE events SET
+                 cost_usd = (input_tokens*?2 + output_tokens*?3 + cache_read_tokens*?4 + cache_creation_tokens*?5)/1000000.0,
+                 cache_savings_usd = cache_read_tokens * (CASE WHEN ?2>?4 THEN ?2-?4 ELSE 0 END)/1000000.0
                WHERE COALESCE(model,'') = ?1"#,
             params![m, p.input, p.output, p.cache_read, p.cache_write],
         )?;
@@ -586,24 +679,46 @@ pub fn sessions(conn: &Connection, project: Option<&str>, from: Option<&str>) ->
                          COALESCE(SUM(e.cache_creation_tokens),0),
                          COALESCE(SUM(e.cost_usd),0),
                          COUNT(e.event_id),
-                         COALESCE(s.tag,''), COALESCE(s.outcome,'')
+                         COALESCE(s.tag,''), COALESCE(s.outcome,''),
+                         (SELECT COUNT(*) FROM tools t WHERE t.session_id=s.session_id),
+                         (SELECT COALESCE(SUM(is_error),0) FROM tools t WHERE t.session_id=s.session_id),
+                         (SELECT COUNT(*) FROM (SELECT 1 FROM tools t WHERE t.session_id=s.session_id
+                            AND t.tool_name IN ('Edit','Write','MultiEdit') AND t.target<>''
+                            GROUP BY t.target HAVING COUNT(*)>=4))
                   FROM sessions s LEFT JOIN events e ON e.session_id = s.session_id"#;
     let tail = " GROUP BY s.session_id ORDER BY s.last_activity DESC";
     let map = |r: &rusqlite::Row| {
+        let input: i64 = r.get(5)?;
+        let cache_read: i64 = r.get(7)?;
+        let cache_creation: i64 = r.get(8)?;
+        let tool_total: i64 = r.get(13)?;
+        let tool_err: i64 = r.get(14)?;
+        let rework: i64 = r.get(15)?;
+        // health score 0..100 (đơn giản, có thể tinh chỉnh)
+        let err_rate = if tool_total > 0 { tool_err as f64 / tool_total as f64 } else { 0.0 };
+        let denom = (input + cache_read + cache_creation).max(1) as f64;
+        let cache_hit = cache_read as f64 / denom;
+        let mut h = 100.0 - err_rate * 40.0 - (rework as f64) * 5.0;
+        if cache_hit < 0.5 { h -= (0.5 - cache_hit) * 20.0; }
+        let health = h.clamp(0.0, 100.0) as i64;
         Ok(json!({
             "session_id": r.get::<_, String>(0)?,
             "project": r.get::<_, Option<String>>(1)?,
             "git_branch": r.get::<_, Option<String>>(2)?,
             "started_at": r.get::<_, Option<String>>(3)?,
             "last_activity": r.get::<_, Option<String>>(4)?,
-            "input_tokens": r.get::<_, i64>(5)?,
+            "input_tokens": input,
             "output_tokens": r.get::<_, i64>(6)?,
-            "cache_read_tokens": r.get::<_, i64>(7)?,
-            "cache_creation_tokens": r.get::<_, i64>(8)?,
+            "cache_read_tokens": cache_read,
+            "cache_creation_tokens": cache_creation,
             "cost_usd": r.get::<_, f64>(9)?,
             "events": r.get::<_, i64>(10)?,
             "tag": r.get::<_, String>(11)?,
             "outcome": r.get::<_, String>(12)?,
+            "tool_total": tool_total,
+            "tool_errors": tool_err,
+            "rework_files": rework,
+            "health": health,
         }))
     };
     let out: Vec<Value> = match project {
@@ -740,7 +855,12 @@ pub fn totals(conn: &Connection, from: Option<&str>) -> Result<Value> {
              COALESCE(SUM(output_tokens),0),
              COALESCE(SUM(cache_read_tokens),0),
              COALESCE(SUM(cache_creation_tokens),0),
-             COALESCE(SUM(cost_usd),0)
+             COALESCE(SUM(cost_usd),0),
+             COALESCE(SUM(cache_savings_usd),0),
+             (SELECT COALESCE(SUM(loc_added),0) FROM session_metrics),
+             (SELECT COALESCE(SUM(loc_removed),0) FROM session_metrics),
+             (SELECT COALESCE(SUM(commits),0) FROM session_metrics),
+             (SELECT COALESCE(SUM(otel_cost),0) FROM session_metrics)
            FROM events WHERE 1=1{}"#,
         since("ts", from, "AND")
     );
@@ -755,6 +875,11 @@ pub fn totals(conn: &Connection, from: Option<&str>) -> Result<Value> {
                 "cache_read_tokens": r.get::<_, i64>(3)?,
                 "cache_creation_tokens": r.get::<_, i64>(4)?,
                 "cost_usd": r.get::<_, f64>(5)?,
+                "cache_savings_usd": r.get::<_, f64>(6)?,
+                "loc_added": r.get::<_, i64>(7)?,
+                "loc_removed": r.get::<_, i64>(8)?,
+                "commits": r.get::<_, i64>(9)?,
+                "otel_cost": r.get::<_, f64>(10)?,
             }))
         },
     )

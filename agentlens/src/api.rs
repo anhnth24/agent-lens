@@ -147,6 +147,40 @@ pub async fn heatmap(
     Ok(Json(store::heatmap(&conn, project, from.as_deref()).map_err(err)?))
 }
 
+pub async fn sequences(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::sequences(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn session_metric(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::session_metric(&conn, &id).map_err(err)?))
+}
+
+/// OTLP/HTTP JSON metrics receiver (FR-3): cost/LOC/commits chính xác từ OpenTelemetry.
+pub async fn otlp_metrics(State(state): State<AppState>, Json(v): Json<Value>) -> StatusCode {
+    let deltas = crate::otel::parse_metrics(&v);
+    if !deltas.is_empty() {
+        if let Ok(conn) = state.db.lock() {
+            for d in &deltas {
+                let _ = store::upsert_otel(&conn, &d.session_id, d.cost, d.loc_added, d.loc_removed, d.commits, d.prs);
+            }
+        }
+        let _ = state.events_tx.send(());
+    }
+    StatusCode::OK
+}
+
+/// OTLP logs/traces: chấp nhận để không lỗi exporter, hiện chưa xử lý.
+pub async fn otlp_accept() -> StatusCode {
+    StatusCode::OK
+}
+
 pub async fn search(
     State(state): State<AppState>,
     Query(q): Query<HashMap<String, String>>,

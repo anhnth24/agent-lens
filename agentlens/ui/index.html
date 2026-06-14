@@ -134,7 +134,9 @@ async function loadTotals(){
     <div class="stat"><div class="k">Token out</div><div class="v tout">${fmt(t.output_tokens)}</div></div>
     <div class="stat"><div class="k">Cached (read)</div><div class="v tcache">${fmt(t.cache_read_tokens)}</div></div>
     <div class="stat" title="cache_read / tổng input — càng cao càng tiết kiệm"><div class="k">Cache hit</div><div class="v tcache">${cacheHit(t)}%</div></div>
-    <div class="stat" title="ước tính theo bảng giá model"><div class="k">Cost (ước tính)</div><div class="v" style="color:#3fb950">${money(t.cost_usd)}</div></div>`;
+    <div class="stat" title="ước tính theo bảng giá model"><div class="k">Cost (ước tính)</div><div class="v" style="color:#3fb950">${money(t.cost_usd)}</div></div>
+    <div class="stat" title="tiền tiết kiệm nhờ prompt cache (ước tính)"><div class="k">Tiết kiệm cache</div><div class="v tcache">${money(t.cache_savings_usd)}</div></div>
+    ${(t.loc_added||t.loc_removed)?`<div class="stat" title="từ OTEL"><div class="k">LOC (OTEL)</div><div class="v"><span class="tin">+${fmt(t.loc_added)}</span>/<span style="color:#f85149">-${fmt(t.loc_removed)}</span></div></div>`:''}`;
 }
 
 async function loadRepos(){
@@ -161,16 +163,18 @@ async function selectRepo(project){
   let html = `<div class="crumbs"><a onclick="selectRepo(null)">Repos</a> / <b>${title}</b></div>`;
   if(!rows.length){ html += `<div class="empty">Chưa có session nào.</div>`; document.getElementById('main').innerHTML=html; return; }
   html += `<table><thead><tr>
-      <th>Session</th><th>Repo</th><th>Branch</th><th>Hoạt động cuối</th>
+      <th>Session</th><th>Repo</th><th class="num" title="điểm sức khỏe 0–100">health</th><th>Branch</th><th>Hoạt động cuối</th>
       <th class="num">in</th><th class="num">out</th><th class="num">cached</th><th class="num">cost</th><th class="num">events</th>
     </tr></thead><tbody>`;
   for(const s of rows){
     const live = s.last_activity && (Date.now() - new Date(s.last_activity).getTime() < 5*60000);
     const dot = live ? '<span title="đang hoạt động" style="color:#3fb950">● </span>' : '';
     const tagp = s.tag ? ` <span class="pill">${esc(s.tag)}</span>` : '';
+    const hc = s.health>=80?'#3fb950':(s.health>=50?'#d29922':'#f85149');
     html += `<tr onclick='openSession(${JSON.stringify(s.session_id)})'>
       <td class="mono">${dot}${shortId(s.session_id)}${tagp}</td>
       <td>${esc(s.project||'')}</td>
+      <td class="num" style="color:${hc};font-weight:600">${s.health??'—'}</td>
       <td><span class="pill">${esc(s.git_branch||'—')}</span></td>
       <td>${tstr(s.last_activity)}</td>
       <td class="num tin">${fmt(s.input_tokens)}</td>
@@ -180,10 +184,23 @@ async function selectRepo(project){
       <td class="num">${fmt(s.events)}</td></tr>`;
   }
   html += `</tbody></table><div id="trends"></div><div id="outcomePanel"></div><div id="heatmapPanel"></div>
-    <div id="toolsPanel"></div><div id="filesPanel"></div><div id="slowPanel"></div>`;
+    <div id="toolsPanel"></div><div id="seqPanel"></div><div id="filesPanel"></div><div id="slowPanel"></div>`;
   document.getElementById('main').innerHTML = html;
   loadTrends(); loadOutcomes(project); loadHeatmap(project);
-  loadTools(project); loadFiles(project); loadSlowest(project);
+  loadTools(project); loadSequences(project); loadFiles(project); loadSlowest(project);
+}
+
+async function loadSequences(project){
+  const q = '?'+rq()+(project ? ('&project='+encodeURIComponent(project)) : '');
+  const rows = await j('/api/sequences'+q).catch(()=>[]);
+  if(!rows.length){ document.getElementById('seqPanel').innerHTML=''; return; }
+  let html = `<div class="lbl" style="margin-top:20px">Chuỗi tool phổ biến (A → B)</div>
+    <table><thead><tr><th>Từ</th><th>Đến</th><th class="num">số lần</th></tr></thead><tbody>`;
+  for(const r of rows){
+    html += `<tr style="cursor:default"><td><span class="pill">${esc(r.from)}</span></td>
+      <td>→ <span class="pill">${esc(r.to)}</span></td><td class="num">${fmt(r.count)}</td></tr>`;
+  }
+  document.getElementById('seqPanel').innerHTML = html + `</tbody></table>`;
 }
 
 async function loadOutcomes(project){
@@ -289,12 +306,13 @@ async function loadTools(project){
 async function openSession(id){
   activeSession = id;
   const enc = encodeURIComponent(id);
-  const [evs, prompts, models, fric, errs, sess] = await Promise.all([
+  const [evs, prompts, models, fric, errs, otel, sess] = await Promise.all([
     j('/api/sessions/'+enc+'/events'),
     j('/api/sessions/'+enc+'/prompts').catch(()=>[]),
     j('/api/sessions/'+enc+'/models').catch(()=>[]),
     j('/api/sessions/'+enc+'/friction').catch(()=>[]),
     j('/api/sessions/'+enc+'/errors').catch(()=>[]),
+    j('/api/sessions/'+enc+'/otel').catch(()=>({})),
     j('/api/sessions?range=all').catch(()=>[])
   ]);
   const meta = (sess||[]).find(s=>s.session_id===id) || {};
@@ -310,6 +328,13 @@ async function openSession(id){
         ${['success','partial','fail'].map(o=>`<option ${meta.outcome===o?'selected':''}>${o}</option>`).join('')}
       </select>
       <button class="tab" id="tagSave" onclick='saveTag(${JSON.stringify(id)})'>Lưu</button></div>`;
+  // OTEL (cost chính xác + LOC/commits) nếu có
+  if(otel && (otel.otel_cost || otel.loc_added || otel.loc_removed || otel.commits)){
+    html += `<div class="finding sev-low" style="border-left-color:#3fb950">OTEL:
+      cost <b style="color:#3fb950">${money(otel.otel_cost)}</b> ·
+      LOC <span class="tin">+${fmt(otel.loc_added)}</span>/<span style="color:#f85149">-${fmt(otel.loc_removed)}</span> ·
+      commits ${fmt(otel.commits)} · PR ${fmt(otel.prs)}</div>`;
+  }
   // breakdown theo model (đổi model giữa session)
   if(models.length){
     html += `<div class="lbl">Theo model${models.length>1?' — session này dùng nhiều model':''}</div>

@@ -118,3 +118,9 @@ pub fn cost(model: &str, input: i64, output: i64, cache_read: i64, cache_write: 
         + cache_write as f64 * p.cache_write)
         / 1_000_000.0
 }
+
+/// Tiền tiết kiệm nhờ prompt cache: phần chênh giữa giá input đầy đủ và giá cache_read.
+pub fn cache_savings(model: &str, cache_read: i64) -> f64 {
+    let p = for_model(model);
+    cache_read as f64 * (p.input - p.cache_read).max(0.0) / 1_000_000.0
+}
