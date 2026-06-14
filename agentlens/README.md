@@ -1,49 +1,86 @@
-# AgentLens (lean)
+# AgentLens
 
-Công cụ **local** theo dõi & review session **Claude Code**: thu hook + transcript JSONL → lưu **SQLite** → UI web xem theo **repo** với thống kê **token in / out / cached**. Zero-token cho việc thu thập (chỉ đọc dữ liệu Claude Code đã sinh).
+Công cụ **local** theo dõi & review session **Claude Code**: thu hook + transcript JSONL (+ OpenTelemetry tùy chọn) → lưu **SQLite** → UI web/desktop xem theo **repo** với thống kê **token in / out / cached**, **chi phí**, **tiết kiệm cache** và nhiều phân tích để cải thiện workflow agent. Việc thu thập là **zero-token** (chỉ đọc dữ liệu Claude Code đã sinh ra trên máy).
 
-1 binary Rust: hook receiver + JSONL tailer + query API + UI server.
+1 binary Rust gọn: hook receiver + JSONL tailer + OTLP receiver + query API + UI server. Dữ liệu **không rời máy** (chỉ gọi LLM khi bạn bấm "Tóm tắt/Insight" và đã đặt API key).
 
-## Chạy
+## Tính năng
 
-**Desktop app (Tauri 2)** — khuyến nghị:
+- **Live** — các session đang chạy (near-realtime ~1–2s), hành động cuối, token/cost tăng dần.
+- **Sessions** — danh sách theo repo + điểm **health** mỗi session; mở ra xem timeline, breakdown theo prompt/model, friction/loop, **cost burn**, lỗi.
+- **Replay** — tua lại từng bước prompt → thinking → tool → result (phím ←/→/Esc).
+- **Auto-follow** — bám timeline session đang chạy theo thời gian thực (chỉ append event mới, không giật).
+- **Tools / Files** — phân tích tool (tần suất, lỗi, thời lượng), chuỗi tool (A→B), thao tác chậm, hot files.
+- **Phân tích** — trend token theo ngày, health theo tuần, repo leaderboard, outcome correlation, heatmap hoạt động.
+- **Chất lượng** — digest 7 ngày, **model right-sizing**, prompt quality theo độ dài & style, recovery (gỡ lỗi), cache advisor, skill/subagent usage, error clustering.
+- **Insight (LLM)** — tóm tắt 1 session hoặc phân tích cross-session để gợi ý cải thiện (tùy chọn, cần API key, có redaction).
+- **Giao diện** — pixel/retro, 2 theme **sáng/tối** (nút ☀/🌙, nhớ lựa chọn), lọc thời gian today/7d/30d/90d, tìm kiếm full-text. Áp dụng design system từ skill `ui-ux-pro-max`.
+
+## Yêu cầu
+
+- **Rust** (stable, kèm `cargo`).
+- Chạy **server/headless**: không cần gì thêm.
+- Build **desktop (Tauri 2)** — cần lib hệ thống:
+  - **Linux:** `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev`
+  - **macOS:** Xcode Command Line Tools · **Windows:** WebView2 + MSVC build tools
+  - (Theo prerequisites Tauri 2: <https://tauri.app>)
+
+## Cách 1 — Chạy local (server/headless)
+
+Đơn giản nhất, mở bằng trình duyệt:
+
 ```bash
+cd agentlens
+cargo run --release          # mặc định http://127.0.0.1:8787
+```
+
+Mở <http://127.0.0.1:8787>. Tailer tự quét `~/.claude/projects/**/*.jsonl` nên **chạy là có dữ liệu ngay**, không bắt buộc cấu hình hook.
+
+## Cách 2 — App desktop (Tauri 2)
+
+**Chạy thử (dev):** app tự chạy server lõi trong nền và mở cửa sổ trỏ tới UI (cùng origin với API, không CORS):
+
+```bash
+cd agentlens
 cargo run -p agentlens-desktop --release
 ```
-App tự chạy server lõi trong nền và mở cửa sổ trỏ tới UI (cùng origin với API).
 
-**Hoặc chế độ server/headless** (mở UI bằng trình duyệt):
+**Đóng gói cài đặt (production bundle):**
+
 ```bash
-cargo run --release        # mặc định http://127.0.0.1:8787
+cargo install tauri-cli --version "^2"      # cài 1 lần
+cd agentlens/desktop/src-tauri
+cargo tauri build                            # output ở target/release/bundle/
 ```
-Mở trình duyệt: <http://127.0.0.1:8787>.
 
-> **Build desktop trên Linux** cần các lib hệ thống của Tauri:
-> `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev`.
-> macOS/Windows: theo prerequisites của Tauri 2 (xem tauri.app).
+Kết quả: `.deb`/`.AppImage` (Linux), `.dmg`/`.app` (macOS), `.msi`/`.exe` (Windows) trong `target/release/bundle/`.
 
-Biến môi trường (tùy chọn):
+## Biến môi trường (tùy chọn)
 
 | Env | Mặc định | Ý nghĩa |
 |---|---|---|
-| `AGENTLENS_ADDR` | `127.0.0.1:8787` | địa chỉ bind (API + UI + /hook) |
+| `AGENTLENS_ADDR` | `127.0.0.1:8787` | địa chỉ bind (API + UI + `/hook` + OTLP) |
 | `AGENTLENS_DATA_DIR` | `~/.agentlens` | nơi chứa `agentlens.db` (SQLite, WAL) |
 | `AGENTLENS_PROJECTS_DIR` | `~/.claude/projects` | thư mục transcript JSONL để tail |
-| `ANTHROPIC_API_KEY` | — | bật FR-8 (tóm tắt LLM). Không đặt → tính năng tóm tắt tắt |
-| `AGENTLENS_MODEL` | `claude-haiku-4-5-20251001` | model cho FR-8 (chỉnh theo nhu cầu) |
+| `AGENTLENS_PRICING_URL` | LiteLLM (community) | nguồn bảng giá JSON, refresh hàng ngày. Đặt rỗng (`""`) để chỉ dùng bảng built-in |
+| `AGENTLENS_PRICING_FILE` | — | file JSON giá local (ưu tiên hơn URL) |
+| `ANTHROPIC_API_KEY` | — | bật tính năng Insight/Tóm tắt (LLM). Không đặt → tắt |
+| `AGENTLENS_MODEL` | `claude-haiku-4-5-20251001` | model cho tính năng LLM |
 
-> Tailer tự quét `~/.claude/projects/**/*.jsonl` nên **chạy là có dữ liệu ngay**, không bắt buộc cấu hình hook.
+> **Chi phí là ước tính** theo bảng giá (built-in hoặc LiteLLM) — phụ thuộc nguồn giá, không phải hóa đơn chính thức.
 
 ## Bật hook Claude Code (realtime, tùy chọn)
 
+Tailer đã đủ để có dữ liệu. Bật hook giúp nhận diện session + `cwd`(repo) + `transcript_path` **ngay khi bắt đầu** và đẩy update realtime.
+
 Cách nhanh (merge idempotent, có backup):
+
 ```bash
-./scripts/install-hooks.sh                       # ~/.claude/settings.json, url mặc định :8787
+./scripts/install-hooks.sh                                              # ~/.claude/settings.json, url :8787
 ./scripts/install-hooks.sh ~/.claude/settings.json http://127.0.0.1:8787/hook
 ```
-Khởi động lại Claude Code để nạp hooks. Mẫu config: `examples/claude-settings.json`.
 
-Hook giúp phát hiện session + `cwd`(repo) + `transcript_path` ngay khi bắt đầu. Hoặc thêm thủ công vào `~/.claude/settings.json`:
+Khởi động lại Claude Code để nạp hooks. Mẫu config: `examples/claude-settings.json`. Hoặc thêm thủ công vào `~/.claude/settings.json`:
 
 ```json
 {
@@ -58,28 +95,48 @@ Hook giúp phát hiện session + `cwd`(repo) + `transcript_path` ngay khi bắt
 }
 ```
 
+## Bật OpenTelemetry (cost/LOC/commit chính xác, tùy chọn)
+
+Đặt biến trên máy chạy Claude Code để đẩy metric OTLP/HTTP JSON về AgentLens:
+
+```bash
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:8787
+```
+
+AgentLens trích `cost.usage`, `lines_of_code.count`, `commit.count`, `pull_request.count` cho từng session (hiển thị trong chi tiết session).
+
 ## API
 
 | Method | Path | Mô tả |
 |---|---|---|
-| POST | `/hook` | nhận hook Claude Code (FR-1) |
-| GET | `/api/totals` | tổng session + token in/out/cached |
+| POST | `/hook` | nhận hook Claude Code |
+| POST | `/v1/metrics` | OTLP/HTTP JSON metrics (logs/traces được nhận & bỏ qua) |
+| GET | `/api/totals` | tổng session + token + cost + tiết kiệm cache |
 | GET | `/api/projects` | danh sách repo + token mỗi repo |
-| GET | `/api/sessions?project=` | session (lọc theo repo) + token mỗi session |
-| GET | `/api/sessions/{id}/events` | timeline 1 session (prompt/thinking/tool/usage) |
+| GET | `/api/live?mins=10` | session đang hoạt động |
+| GET | `/api/sessions?project=&range=` | session (lọc repo/thời gian) + health |
+| GET | `/api/sessions/{id}/events?after=` | timeline 1 session (hỗ trợ auto-follow) |
+| GET | `/api/sessions/{id}/prompts\|models\|friction\|errors\|otel` | breakdown chi tiết |
+| POST | `/api/sessions/{id}/tag` · `/summarize` | gắn tag/outcome · tóm tắt LLM |
 | GET | `/api/summary?group_by=project\|day\|model` | thống kê token theo nhóm |
-| POST | `/api/sessions/{id}/summarize` | FR-8: tóm tắt + gợi ý (redact trước khi gửi LLM) |
+| GET | `/api/tools\|files\|slowest\|sequences\|outcomes\|heatmap` | phân tích tool/file/hoạt động |
+| GET | `/api/health-trend\|leaderboard\|digest` | sức khỏe theo tuần · repo leaderboard · digest |
+| GET | `/api/recovery\|prompt-styles\|prompt-insights\|cache-advisor\|model-rightsizing\|agents\|error-clusters` | phân tích chất lượng |
+| GET | `/api/search?q=` · `/api/insights` · POST `/api/insights/analyze` | tìm kiếm · insight đã lưu · phân tích cross-session |
+| GET | `/ws` | WebSocket báo update (live) |
 
-## Map tính năng (PRD lean)
+## Dữ liệu & quyền riêng tư
 
-- **FR-1** hook ingestion · **FR-2** tail JSONL (thinking/prompt/usage) · **FR-3** chuẩn hóa + dedup (event_id) · **FR-4** OTEL: *chưa làm v1, token lấy từ JSONL*.
-- **FR-5** timeline · **FR-6** thống kê token in/out/cached theo session/ngày/skill/model · **FR-7** lọc theo repo/thời gian.
-- **FR-8** LLM tóm tắt + gợi ý (tùy chọn) với redaction.
-- **FR-9/10** retention/xóa: *chưa làm v1 (giữ tay/qua SQL)*.
+- Mọi thứ chạy **local**; DB ở `~/.agentlens/agentlens.db` (SQLite/WAL) — sao lưu/xóa thủ công.
+- Chỉ đọc transcript Claude Code đã có; **không gửi gì ra ngoài** trừ khi bạn bấm Insight/Tóm tắt (khi đó nội dung được **redact** trước khi gửi tới Anthropic API).
+- Dedup idempotent theo `event_id` (uuid dòng JSONL) — chạy lại an toàn.
 
-## Token "cached"
+## Skill thiết kế
 
-Lấy từ `usage` của transcript: `cache_read_input_tokens` (hiển thị là **cached** — phần đọc lại từ prompt cache) và `cache_creation_input_tokens` (**cache write**). Token in = `input_tokens`, out = `output_tokens`.
+Giao diện áp dụng design system từ skill `ui-ux-pro-max` (đã cài tại `.claude/skills/ui-ux-pro-max`, MIT). Có thể gọi lại trong Claude Code để chỉnh sửa UI về sau.
 
 ## Test
 
