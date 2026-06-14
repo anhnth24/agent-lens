@@ -5,40 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AgentLens — Claude Code sessions</title>
 <style>
-  /* ui-ux-pro-max: Data-Dense Dashboard · Fira Sans/Code · blue+amber */
-  @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap');
+  /* ui-ux-pro-max: PIXEL ART — Pixelify Sans + VT323, hard edges, hard shadows, limited palette */
+  @import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=VT323&display=swap');
   :root{
-    /* dark — Developer Tool / IDE neutrals + blue primary, amber highlight */
-    --bg:#0f172a; --surface:#151d2e; --surface-2:#1a2336; --surface-3:#222d44;
-    --border:#293650; --border-strong:#3a4865;
-    --fg:#f1f5f9; --fg-soft:#c4cfde; --muted:#8a97ad;
-    --accent:#3b82f6; --accent-2:#a78bfa; --accent-weak:rgba(59,130,246,.16);
-    --green:#34d399; --amber:#fbbf24; --red:#f87171;
-    --in:#34d399; --out:#fbbf24; --cache:#a78bfa;
-    --radius:14px; --radius-sm:9px; --radius-pill:999px;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.32);
-    --shadow-sm:0 1px 2px rgba(0,0,0,.3);
-    --grad:linear-gradient(135deg,#3b82f6,#6366f1);
-    --hdr-h:56px; --tb-h:52px; --kpi-h:96px; --maxw:1380px;
+    /* dark — limited retro palette: ink on midnight, single amber accent */
+    --bg:#12141d; --surface:#1b1e2c; --surface-2:#242838; --surface-3:#2e3349;
+    --border:#454b68; --border-strong:#6b7398;
+    --fg:#ece7d4; --fg-soft:#b4b09e; --muted:#838aa1;
+    --accent:#ffb22e; --accent-2:#ffb22e; --accent-weak:rgba(255,178,46,.15);
+    --green:#5bd16a; --amber:#ffb22e; --red:#ff5a5a;
+    --in:#ece7d4; --out:#ece7d4; --cache:#ece7d4;
+    --radius:0px; --radius-sm:0px; --radius-pill:0px;
+    --shadow:4px 4px 0 0 #0a0b10; --shadow-sm:3px 3px 0 0 #0a0b10;
+    --grad:var(--accent); --shadow-col:#0a0b10;
+    --hdr-h:56px; --tb-h:52px; --kpi-h:98px; --maxw:1380px;
     --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
   }
   [data-theme="light"]{
-    /* light — Data-Dense Dashboard: blue data + amber highlights (WCAG AA) */
-    --bg:#f6f8fc; --surface:#ffffff; --surface-2:#f1f5fb; --surface-3:#e6edf6;
-    --border:#e2e8f0; --border-strong:#cbd5e1;
-    --fg:#0f1c33; --fg-soft:#334155; --muted:#64748b;
-    --accent:#2563eb; --accent-2:#7c3aed; --accent-weak:rgba(37,99,235,.10);
-    --green:#15803d; --amber:#b45309; --red:#dc2626;
-    --in:#15803d; --out:#b45309; --cache:#7c3aed;
-    --shadow:0 1px 2px rgba(15,23,42,.05),0 10px 30px rgba(15,23,42,.08);
-    --shadow-sm:0 1px 2px rgba(15,23,42,.06);
-    --grad:linear-gradient(135deg,#2563eb,#7c3aed);
+    /* light — retro cream paper, dark ink borders, dark-amber accent */
+    --bg:#e9e4cf; --surface:#f4efdb; --surface-2:#e2dcc1; --surface-3:#d5ceaf;
+    --border:#26241c; --border-strong:#000000;
+    --fg:#26241c; --fg-soft:#4c4736; --muted:#6c6650;
+    --accent:#b56b00; --accent-2:#b56b00; --accent-weak:rgba(181,107,0,.14);
+    --green:#2e7d32; --amber:#9a6400; --red:#c62828;
+    --in:#26241c; --out:#26241c; --cache:#26241c;
+    --shadow:4px 4px 0 0 #26241c; --shadow-sm:3px 3px 0 0 #26241c;
+    --grad:var(--accent); --shadow-col:#26241c;
   }
   *{ box-sizing:border-box; }
   html,body{ height:100%; }
   body{ margin:0; background:var(--bg); color:var(--fg);
-    font:14px/1.55 "Fira Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased; }
+    font:15px/1.5 "Pixelify Sans",ui-monospace,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    image-rendering:pixelated; }
+  /* số liệu, code dùng VT323 (terminal) */
+  .mono,pre,.val,td.num,.kcard .val,.barlbl,.heath,.heatlbl{ font-family:"VT323",ui-monospace,Menlo,Consolas,monospace; }
   ::-webkit-scrollbar{ width:11px; height:11px; }
   ::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
   ::-webkit-scrollbar-thumb:hover{ background:var(--muted); background-clip:padding-box; }
@@ -64,9 +64,9 @@
   .kcard .top{ display:flex; align-items:center; gap:6px; color:var(--muted); font-size:10.5px;
     font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
   .kcard .top svg{ opacity:.75; }
-  .kcard .val{ font-size:23px; font-weight:700; letter-spacing:-.02em; line-height:1;
-    font-family:"Fira Code",ui-monospace,monospace; }
-  .tin{ color:var(--in); } .tout{ color:var(--out); } .tcache{ color:var(--cache); } .tcost{ color:var(--green); }
+  .kcard .val{ font-size:27px; font-weight:400; letter-spacing:.01em; line-height:.95; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* màu giới hạn: dữ liệu = ink trung tính; chỉ tiền dùng accent */
+  .tin,.tout,.tcache{ color:var(--fg); } .tcost{ color:var(--accent); }
   .icon-btn{ flex:none; width:34px; height:34px; display:grid; place-items:center; cursor:pointer;
     background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--fg-soft);
     transition:all .15s; }
@@ -130,7 +130,8 @@
   tbody tr:last-child td{ border-bottom:none; }
   tbody tr:hover{ background:var(--accent-weak); }
   .num{ text-align:right; }
-  .mono{ font-family:"Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
+  .mono{ font-family:"VT323",ui-monospace,Menlo,Consolas,monospace; font-size:16px; letter-spacing:.02em; }
+  td.num{ font-size:16px; }
 
   .pill{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:var(--radius-pill); font-size:11px;
     font-weight:600; background:var(--surface-2); border:1px solid var(--border); color:var(--fg-soft); }
@@ -181,9 +182,9 @@
   .ev .body{ padding:0 13px 12px; display:none; }
   .ev.open .body{ display:block; }
   .ev.open .head{ border-bottom:1px solid var(--border); margin-bottom:8px; }
-  pre{ white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
-    padding:10px 12px; margin:6px 0; max-height:360px; overflow:auto; font-size:12.5px;
-    font-family:"Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre{ white-space:pre-wrap; word-break:break-word; background:var(--bg); border:2px solid var(--border); border-radius:var(--radius-sm);
+    padding:10px 12px; margin:6px 0; max-height:360px; overflow:auto; font-size:15px;
+    font-family:"VT323",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
   .think{ border-left:3px solid var(--accent-2); }
 
   /* ── inputs ── */
@@ -219,6 +220,28 @@
   .replay .rbody{ padding:14px 18px; overflow:auto; }
   .replay .rbody .head{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
   svg{ flex:none; }
+
+  /* ── pixel art treatment ── */
+  .brand h1{ font-weight:700; letter-spacing:.03em; }
+  .logo{ border:2px solid var(--shadow-col); }
+  .kcard,.ev,table,.finding,.livecard,.bars,.heat,.replay,.kpi,aside,#search,.taginput,.seg{ border-width:2px; }
+  .kcard,.livecard,.finding,.bars,.heat,.kpi{ box-shadow:var(--shadow); }
+  .btn,.icon-btn{ border-width:2px; box-shadow:var(--shadow-sm); }
+  .btn:active,.icon-btn:active,.seg button:active,.tab:active{ transform:translate(3px,3px); box-shadow:none; }
+  .seg{ padding:0; }
+  .seg button.active{ box-shadow:none; }
+  .tab{ border:2px solid transparent; border-bottom:none; padding:8px 13px; }
+  .tab.active{ background:var(--accent); color:#15151f; }
+  [data-theme="light"] .tab.active{ color:var(--surface); }
+  th{ font-family:"Pixelify Sans",monospace; font-weight:700; }
+  .pill{ border-width:2px; }
+  .hbadge{ border-width:2px; font-family:"VT323",monospace; font-size:15px; }
+  .repo.active{ border:2px solid var(--accent); }
+  .repo.active::before{ display:none; }
+  /* subtle CRT scanlines */
+  body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:60;
+    background:repeating-linear-gradient(to bottom,transparent 0 2px,rgba(0,0,0,.05) 2px 3px); }
+  [data-theme="light"] body::after{ background:repeating-linear-gradient(to bottom,transparent 0 2px,rgba(0,0,0,.025) 2px 3px); }
 
   /* ── a11y (ui-ux-pro-max checklist) ── */
   :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
@@ -278,6 +301,7 @@
 
 <script>
 const fmt = n => (n ?? 0).toLocaleString('en-US');
+const kfmt = n => { n = n||0; if(n>=1e9) return (n/1e9).toFixed(1)+'B'; if(n>=1e6) return (n/1e6).toFixed(1)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return ''+n; };
 const money = n => '$'+(n ?? 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const ms = n => n>=1000 ? (n/1000).toFixed(1)+'s' : (n||0)+'ms';
 const cacheHit = o => { const d=(o.input_tokens||0)+(o.cache_read_tokens||0)+(o.cache_creation_tokens||0); return d? Math.round((o.cache_read_tokens||0)/d*100):0; };
@@ -353,9 +377,9 @@ async function loadTotals(){
     <div class="top">${ic(icon,13)}${label}</div><div class="val ${cls||''}">${val}</div></div>`;
   let h = '';
   h += card('sessions','Sessions',fmt(t.sessions));
-  h += card('arrowDown','Token in',fmt(t.input_tokens),'tin');
-  h += card('arrowUp','Token out',fmt(t.output_tokens),'tout');
-  h += card('database','Cached',fmt(t.cache_read_tokens),'tcache');
+  h += card('arrowDown','Token in',kfmt(t.input_tokens),'tin',fmt(t.input_tokens)+' token in');
+  h += card('arrowUp','Token out',kfmt(t.output_tokens),'tout',fmt(t.output_tokens)+' token out');
+  h += card('database','Cached',kfmt(t.cache_read_tokens),'tcache',fmt(t.cache_read_tokens)+' cached');
   h += card('percent','Cache hit',cacheHit(t)+'%','tcache','cache_read / tổng input — càng cao càng tiết kiệm');
   h += card('dollar','Cost',money(t.cost_usd),'tcost','ước tính theo bảng giá model');
   h += card('tag','Tiết kiệm',money(t.cache_savings_usd),'tcache','tiền tiết kiệm nhờ prompt cache');
