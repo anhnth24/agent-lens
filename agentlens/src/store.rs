@@ -91,6 +91,81 @@ fn since(col: &str, from: Option<&str>, kw: &str) -> String {
     }
 }
 
+/// Điểm sức khỏe session 0..100 (dùng chung cho sessions/leaderboard/trend).
+fn health_score(input: i64, cache_read: i64, cache_creation: i64, tool_total: i64, tool_err: i64, rework: i64) -> i64 {
+    let err_rate = if tool_total > 0 { tool_err as f64 / tool_total as f64 } else { 0.0 };
+    let denom = (input + cache_read + cache_creation).max(1) as f64;
+    let cache_hit = cache_read as f64 / denom;
+    let mut h = 100.0 - err_rate * 40.0 - (rework as f64) * 5.0;
+    if cache_hit < 0.5 { h -= (0.5 - cache_hit) * 20.0; }
+    h.clamp(0.0, 100.0) as i64
+}
+
+/// Khóa tuần ISO (year-Wweek) từ timestamp; fallback ngày nếu parse lỗi.
+fn week_key(ts: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(ts)
+        .map(|d| d.format("%G-W%V").to_string())
+        .unwrap_or_else(|_| ts.chars().take(10).collect())
+}
+
+/// Thành phần thô của 1 session (để tính health/trend/leaderboard mà không lặp SQL).
+struct SessComp {
+    session_id: String,
+    project: String,
+    last_activity: String,
+    input: i64,
+    cache_read: i64,
+    cache_creation: i64,
+    cost: f64,
+    tool_total: i64,
+    tool_err: i64,
+    rework: i64,
+}
+
+fn session_components(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Vec<SessComp>> {
+    let time_c = since("s.last_activity", from, "AND");
+    let base = r#"SELECT s.project, COALESCE(s.last_activity,''),
+                    COALESCE(SUM(e.input_tokens),0),
+                    COALESCE(SUM(e.cache_read_tokens),0),
+                    COALESCE(SUM(e.cache_creation_tokens),0),
+                    COALESCE(SUM(e.cost_usd),0),
+                    (SELECT COUNT(*) FROM tools t WHERE t.session_id=s.session_id),
+                    (SELECT COALESCE(SUM(is_error),0) FROM tools t WHERE t.session_id=s.session_id),
+                    (SELECT COUNT(*) FROM (SELECT 1 FROM tools t WHERE t.session_id=s.session_id
+                       AND t.tool_name IN ('Edit','Write','MultiEdit') AND t.target<>''
+                       GROUP BY t.target HAVING COUNT(*)>=4)),
+                    s.session_id
+                  FROM sessions s LEFT JOIN events e ON e.session_id=s.session_id"#;
+    let tail = " GROUP BY s.session_id";
+    let map = |r: &rusqlite::Row| {
+        Ok(SessComp {
+            project: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
+            last_activity: r.get::<_, String>(1)?,
+            input: r.get(2)?,
+            cache_read: r.get(3)?,
+            cache_creation: r.get(4)?,
+            cost: r.get(5)?,
+            tool_total: r.get(6)?,
+            tool_err: r.get(7)?,
+            rework: r.get(8)?,
+            session_id: r.get(9)?,
+        })
+    };
+    let out: Vec<SessComp> = match project {
+        Some(p) => {
+            let mut st = conn.prepare(&format!("{base} WHERE s.project=?1{time_c}{tail}"))?;
+            let rows = st.query_map(params![p], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+        None => {
+            let mut st = conn.prepare(&format!("{base} WHERE 1=1{time_c}{tail}"))?;
+            let rows = st.query_map([], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+    };
+    Ok(out)
+}
+
 pub fn open(path: &std::path::Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -714,6 +789,234 @@ pub fn digest(conn: &Connection, project: Option<&str>) -> Result<Value> {
     }))
 }
 
+/// #1 Recovery path: với mỗi tool, lỗi liên tiếp dài nhất + TB số lần lỗi tới khi gỡ được.
+pub fn recovery(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    use std::collections::HashMap;
+    let sql = format!(
+        r#"SELECT t.session_id, t.tool_name, t.is_error
+           FROM tools t JOIN sessions s ON s.session_id=t.session_id
+           WHERE t.tool_name<>''{proj}{time} ORDER BY t.session_id, t.ts_use"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("t.ts_use", from, "AND"),
+    );
+    let f = |r: &rusqlite::Row| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?));
+    let rows: Vec<(String, String, i64)> = {
+        let mut st = conn.prepare(&sql)?;
+        match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        }
+    };
+    // per tool: tổng lỗi, số chuỗi đã gỡ, tổng độ dài chuỗi đã gỡ, chuỗi dài nhất
+    #[derive(Default)]
+    struct Acc { errors: i64, recovered: i64, len_sum: i64, max_streak: i64 }
+    let mut acc: HashMap<String, Acc> = HashMap::new();
+    let mut cur: HashMap<(String, String), i64> = HashMap::new(); // (session,tool) -> streak hiện tại
+    for (sess, tool, is_err) in &rows {
+        let k = (sess.clone(), tool.clone());
+        let a = acc.entry(tool.clone()).or_default();
+        if *is_err == 1 {
+            a.errors += 1;
+            let c = cur.entry(k).or_insert(0);
+            *c += 1;
+            if *c > a.max_streak { a.max_streak = *c; }
+        } else if let Some(c) = cur.get_mut(&k) {
+            if *c > 0 { a.recovered += 1; a.len_sum += *c; *c = 0; }
+        }
+    }
+    let mut v: Vec<Value> = acc.into_iter().filter(|(_, a)| a.errors > 0).map(|(tool, a)| {
+        json!({
+            "tool": tool,
+            "errors": a.errors,
+            "recovered": a.recovered,
+            "avg_to_recover": if a.recovered > 0 { a.len_sum as f64 / a.recovered as f64 } else { 0.0 },
+            "max_streak": a.max_streak,
+        })
+    }).collect();
+    v.sort_by(|a, b| b["errors"].as_i64().unwrap_or(0).cmp(&a["errors"].as_i64().unwrap_or(0)));
+    Ok(Value::Array(v))
+}
+
+/// #2 Prompt style → kết quả: phân loại prompt (có ví dụ/đường dẫn/độ dài) đối chiếu turns/cost/lỗi.
+pub fn prompt_styles(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let sql = format!(
+        r#"SELECT
+             (SELECT e2.text FROM events e2 WHERE e2.session_id=ev.session_id
+                AND e2.prompt_id=ev.prompt_id AND e2.role='user' AND e2.text<>'' ORDER BY e2.ts LIMIT 1),
+             COUNT(*),
+             COALESCE(SUM(ev.cost_usd),0),
+             COALESCE(SUM(CASE WHEN ev.tool_error=1 THEN 1 ELSE 0 END),0)
+           FROM events ev JOIN sessions s ON s.session_id=ev.session_id
+           WHERE ev.prompt_id IS NOT NULL AND ev.prompt_id<>''{proj}{time}
+           GROUP BY ev.session_id, ev.prompt_id"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("ev.ts", from, "AND"),
+    );
+    let f = |r: &rusqlite::Row| Ok((
+        r.get::<_, Option<String>>(0)?.unwrap_or_default(),
+        r.get::<_, i64>(1)?, r.get::<_, f64>(2)?, r.get::<_, i64>(3)?,
+    ));
+    let rows: Vec<(String, i64, f64, i64)> = {
+        let mut st = conn.prepare(&sql)?;
+        match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        }
+    };
+    // 4 style (ưu tiên theo thứ tự): có ví dụ/code → có đường dẫn → ngắn/mơ hồ → mô tả thường
+    let labels = ["có ví dụ/code", "có đường dẫn file", "ngắn/mơ hồ (<80)", "mô tả thường"];
+    let path_re = regex::Regex::new(r"[\w./-]+\.[a-zA-Z]{1,5}\b").unwrap();
+    let mut b = [(0i64, 0i64, 0f64, 0i64); 4]; // (prompts, turns_sum, cost_sum, errors_sum)
+    for (text, turns, cost, errs) in &rows {
+        let idx = if text.contains('`') {
+            0
+        } else if path_re.is_match(text) {
+            1
+        } else if text.chars().count() < 80 {
+            2
+        } else {
+            3
+        };
+        b[idx].0 += 1; b[idx].1 += turns; b[idx].2 += cost; b[idx].3 += errs;
+    }
+    let out: Vec<Value> = labels.iter().enumerate().map(|(i, l)| {
+        let (c, t, cost, errs) = b[i];
+        let cf = c.max(1) as f64;
+        json!({
+            "style": l, "prompts": c,
+            "avg_turns": t as f64 / cf, "avg_cost": cost / cf,
+            "avg_errors": errs as f64 / cf,
+        })
+    }).collect();
+    Ok(Value::Array(out))
+}
+
+/// #4 Cache efficiency advisor: session cache-hit thấp + cost đáng kể → cảnh báo & lý do.
+pub fn cache_advisor(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let comps = session_components(conn, project, from)?;
+    let mut v: Vec<(f64, Value)> = Vec::new();
+    for c in &comps {
+        let denom = (c.input + c.cache_read + c.cache_creation).max(1) as f64;
+        let hit = c.cache_read as f64 / denom;
+        if c.cost >= 0.5 && hit < 0.4 {
+            let note = if c.cache_creation > c.cache_read * 2 {
+                "Tạo cache nhiều hơn đọc lại — context thay đổi liên tục / session ngắn."
+            } else if c.input > c.cache_read {
+                "Input chưa cache lớn — giữ ngữ cảnh ổn định, tránh sửa lại file lớn nhiều lần."
+            } else {
+                "Cache-hit thấp — xem lại cấu trúc prompt/đính kèm để tái dùng cache."
+            };
+            v.push((c.cost, json!({
+                "session_id": c.session_id, "project": c.project,
+                "cache_hit": hit, "cost": c.cost,
+                "input_tokens": c.input, "cache_read_tokens": c.cache_read,
+                "note": note,
+            })));
+        }
+    }
+    v.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(Value::Array(v.into_iter().take(15).map(|(_, x)| x).collect()))
+}
+
+/// #5 Model right-sizing: theo nhóm công việc, cost hiện tại vs nếu chạy Sonnet/Haiku.
+pub fn model_rightsizing(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    use std::collections::BTreeMap;
+    let sql = format!(
+        r#"SELECT
+             CASE
+               WHEN e.tool_name IN ('Read','Grep','Glob','LS') THEN 'đọc/tìm'
+               WHEN e.tool_name IN ('Edit','Write','MultiEdit','NotebookEdit') THEN 'sửa file'
+               WHEN e.tool_name='Bash' THEN 'bash'
+               WHEN e.tool_name IN ('Task','Skill') THEN 'subagent'
+               ELSE 'chat/khác' END AS cat,
+             COALESCE(e.model,''),
+             COALESCE(SUM(e.input_tokens),0), COALESCE(SUM(e.output_tokens),0),
+             COALESCE(SUM(e.cache_read_tokens),0), COALESCE(SUM(e.cache_creation_tokens),0),
+             COALESCE(SUM(e.cost_usd),0), COUNT(*)
+           FROM events e JOIN sessions s ON s.session_id=e.session_id
+           WHERE COALESCE(e.model,'')<>''{proj}{time}
+           GROUP BY cat, COALESCE(e.model,'')"#,
+        proj = if project.is_some() { " AND s.project=?1" } else { "" },
+        time = since("e.ts", from, "AND"),
+    );
+    let f = |r: &rusqlite::Row| Ok((
+        r.get::<_, String>(0)?, r.get::<_, String>(1)?,
+        r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?,
+        r.get::<_, f64>(6)?, r.get::<_, i64>(7)?,
+    ));
+    let rows: Vec<(String, String, i64, i64, i64, i64, f64, i64)> = {
+        let mut st = conn.prepare(&sql)?;
+        match project {
+            Some(p) => st.query_map(params![p], f)?.collect::<rusqlite::Result<_>>()?,
+            None => st.query_map([], f)?.collect::<rusqlite::Result<_>>()?,
+        }
+    };
+    // gộp theo nhóm: (cost, in, out, cache_read, cache_creation, events, has_opus)
+    let mut m: BTreeMap<String, (f64, i64, i64, i64, i64, i64, bool)> = BTreeMap::new();
+    for (cat, model, in_, out, cr, cc, cost, n) in rows {
+        let e = m.entry(cat).or_default();
+        e.0 += cost; e.1 += in_; e.2 += out; e.3 += cr; e.4 += cc; e.5 += n;
+        if model.to_lowercase().contains("opus") { e.6 = true; }
+    }
+    let mut out: Vec<Value> = m.into_iter().map(|(cat, (cost, in_, out, cr, cc, n, has_opus))| {
+        let as_sonnet = crate::pricing::cost("claude-sonnet", in_, out, cr, cc);
+        let as_haiku = crate::pricing::cost("claude-haiku", in_, out, cr, cc);
+        json!({
+            "category": cat, "events": n, "current_cost": cost,
+            "as_sonnet": as_sonnet, "as_haiku": as_haiku,
+            "save_sonnet": (cost - as_sonnet).max(0.0),
+            "save_haiku": (cost - as_haiku).max(0.0),
+            "has_opus": has_opus,
+        })
+    }).collect();
+    out.sort_by(|a, b| b["current_cost"].as_f64().unwrap_or(0.0)
+        .partial_cmp(&a["current_cost"].as_f64().unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(Value::Array(out))
+}
+
+/// #7 Health trend theo tuần (ISO year-week): điểm sức khỏe TB + cost.
+pub fn health_trend(conn: &Connection, project: Option<&str>, from: Option<&str>) -> Result<Value> {
+    use std::collections::BTreeMap;
+    let comps = session_components(conn, project, from)?;
+    let mut weeks: BTreeMap<String, (f64, i64, f64)> = BTreeMap::new(); // (health_sum, sessions, cost_sum)
+    for c in &comps {
+        if c.last_activity.is_empty() { continue; }
+        let wk = week_key(&c.last_activity);
+        let h = health_score(c.input, c.cache_read, c.cache_creation, c.tool_total, c.tool_err, c.rework);
+        let e = weeks.entry(wk).or_default();
+        e.0 += h as f64; e.1 += 1; e.2 += c.cost;
+    }
+    let out: Vec<Value> = weeks.into_iter().map(|(wk, (hs, n, cost))| {
+        json!({ "week": wk, "sessions": n, "avg_health": if n > 0 { hs / n as f64 } else { 0.0 }, "cost": cost })
+    }).collect();
+    Ok(Value::Array(out))
+}
+
+/// #8 Repo leaderboard: xếp hạng repo theo cost/health/rework/error.
+pub fn leaderboard(conn: &Connection, from: Option<&str>) -> Result<Value> {
+    use std::collections::BTreeMap;
+    let comps = session_components(conn, None, from)?;
+    // (sessions, cost, health_sum, rework, tool_total, tool_err)
+    let mut m: BTreeMap<String, (i64, f64, f64, i64, i64, i64)> = BTreeMap::new();
+    for c in &comps {
+        let key = if c.project.is_empty() { "(không rõ)".to_string() } else { c.project.clone() };
+        let h = health_score(c.input, c.cache_read, c.cache_creation, c.tool_total, c.tool_err, c.rework);
+        let e = m.entry(key).or_default();
+        e.0 += 1; e.1 += c.cost; e.2 += h as f64; e.3 += c.rework; e.4 += c.tool_total; e.5 += c.tool_err;
+    }
+    let mut out: Vec<Value> = m.into_iter().map(|(p, (n, cost, hs, rw, tt, te))| {
+        json!({
+            "project": p, "sessions": n, "cost": cost,
+            "avg_health": if n > 0 { hs / n as f64 } else { 0.0 },
+            "rework": rw,
+            "error_rate": if tt > 0 { te as f64 / tt as f64 } else { 0.0 },
+        })
+    }).collect();
+    out.sort_by(|a, b| b["cost"].as_f64().unwrap_or(0.0)
+        .partial_cmp(&a["cost"].as_f64().unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(Value::Array(out))
+}
+
 pub fn set_tag(conn: &Connection, session_id: &str, tag: &str, outcome: &str) -> Result<()> {
     conn.execute(
         "UPDATE sessions SET tag=?2, outcome=?3 WHERE session_id=?1",
@@ -940,7 +1243,7 @@ pub fn sessions(conn: &Connection, project: Option<&str>, from: Option<&str>) ->
 pub fn session_events(conn: &Connection, session_id: &str) -> Result<Value> {
     let mut stmt = conn.prepare(
         r#"SELECT ts,kind,role,text,thinking,tool_name,tool_input,tool_result,model,
-                  input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,prompt_id,tool_error
+                  input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,prompt_id,tool_error,cost_usd
            FROM events WHERE session_id = ?1 ORDER BY ts, rowid"#,
     )?;
     let rows = stmt.query_map(params![session_id], |r| {
@@ -960,6 +1263,7 @@ pub fn session_events(conn: &Connection, session_id: &str) -> Result<Value> {
             "cache_creation_tokens": r.get::<_, i64>(12)?,
             "prompt_id": r.get::<_, Option<String>>(13)?,
             "tool_error": r.get::<_, i64>(14)? != 0,
+            "cost_usd": r.get::<_, f64>(15)?,
         }))
     })?;
     Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))

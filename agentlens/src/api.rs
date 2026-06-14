@@ -201,6 +201,65 @@ pub async fn digest(
     Ok(Json(store::digest(&conn, project).map_err(err)?))
 }
 
+pub async fn recovery(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::recovery(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn prompt_styles(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::prompt_styles(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn cache_advisor(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::cache_advisor(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn model_rightsizing(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::model_rightsizing(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn health_trend(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::health_trend(&conn, project, from.as_deref()).map_err(err)?))
+}
+
+pub async fn leaderboard(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let from = range_from(&q);
+    let conn = state.db.lock().unwrap();
+    Ok(Json(store::leaderboard(&conn, from.as_deref()).map_err(err)?))
+}
+
 /// OTLP/HTTP JSON metrics receiver (FR-3): cost/LOC/commits chính xác từ OpenTelemetry.
 pub async fn otlp_metrics(State(state): State<AppState>, Json(v): Json<Value>) -> StatusCode {
     let deltas = crate::otel::parse_metrics(&v);
