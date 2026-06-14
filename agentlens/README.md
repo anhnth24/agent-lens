@@ -36,7 +36,14 @@ Biến môi trường (tùy chọn):
 
 ## Bật hook Claude Code (realtime, tùy chọn)
 
-Hook giúp phát hiện session + `cwd`(repo) + `transcript_path` ngay khi bắt đầu. Thêm vào `~/.claude/settings.json` (hoặc `.claude/settings.json` của project):
+Cách nhanh (merge idempotent, có backup):
+```bash
+./scripts/install-hooks.sh                       # ~/.claude/settings.json, url mặc định :8787
+./scripts/install-hooks.sh ~/.claude/settings.json http://127.0.0.1:8787/hook
+```
+Khởi động lại Claude Code để nạp hooks. Mẫu config: `examples/claude-settings.json`.
+
+Hook giúp phát hiện session + `cwd`(repo) + `transcript_path` ngay khi bắt đầu. Hoặc thêm thủ công vào `~/.claude/settings.json`:
 
 ```json
 {
