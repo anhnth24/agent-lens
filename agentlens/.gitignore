@@ -2,3 +2,7 @@
 *.db
 *.db-wal
 *.db-shm
+
+# Tauri (sinh khi build)
+desktop/src-tauri/gen/
+desktop/src-tauri/target/

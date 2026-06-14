@@ -43,7 +43,8 @@ flowchart LR
 |---|---|---|
 | Collector + API + UI server | **Rust (axum + tokio)** | 1 binary; nhận hook, tail JSONL, serve UI |
 | Store | **SQLite (embedded, 1 file)** | đơn giản, ubiquitous; đủ cho cá nhân/team nhỏ. Cost/token tổng hợp bằng SQL aggregate + index |
-| UI | **Web nhẹ** (React/TS hoặc HTML tối giản) phục vụ trên `localhost` | `[Inference]` không cần Tauri ở v1; bọc Tauri sau nếu muốn app desktop |
+| UI | **Web nhẹ** (HTML/JS) phục vụ trên `localhost` | dùng chung cho cả 2 chế độ chạy |
+| Desktop | **Tauri 2** bọc server lõi (D-14) | crate lõi = lib+bin; app chạy `agentlens::run()` trong thread, cửa sổ trỏ `http://127.0.0.1:8787` (cùng origin → không CORS). Linux cần webkit2gtk-4.1 |
 | LLM (FR-8, tùy chọn) | 1 provider (Anthropic) qua API key | redact secret trước khi gửi; không cần gateway đa vendor |
 
 ## 4. Nguồn dữ liệu Claude Code
@@ -134,5 +135,5 @@ agentlens/
 > Verify `[Unverified]` thinking-in-JSONL ngay ở bước 1 (dogfood bằng chính session đang chạy).
 
 ## 10. Quyết định kỹ thuật
-**Đã chốt:** Rust (1 binary), **SQLite** embedded (WAL), web UI localhost (không Tauri ở v1), LLM tùy chọn 1 provider (Anthropic).
+**Đã chốt:** Rust (lib+bin), **SQLite** embedded (WAL), web UI localhost, **desktop app Tauri 2** (D-14), LLM tùy chọn 1 provider (Anthropic).
 **Còn mở:** có làm FR-8 ngay không; verify thinking-in-JSONL.

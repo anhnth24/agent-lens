@@ -6,10 +6,21 @@ Công cụ **local** theo dõi & review session **Claude Code**: thu hook + tran
 
 ## Chạy
 
+**Desktop app (Tauri 2)** — khuyến nghị:
+```bash
+cargo run -p agentlens-desktop --release
+```
+App tự chạy server lõi trong nền và mở cửa sổ trỏ tới UI (cùng origin với API).
+
+**Hoặc chế độ server/headless** (mở UI bằng trình duyệt):
 ```bash
 cargo run --release        # mặc định http://127.0.0.1:8787
 ```
 Mở trình duyệt: <http://127.0.0.1:8787>.
+
+> **Build desktop trên Linux** cần các lib hệ thống của Tauri:
+> `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev`.
+> macOS/Windows: theo prerequisites của Tauri 2 (xem tauri.app).
 
 Biến môi trường (tùy chọn):
 
