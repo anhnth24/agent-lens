@@ -136,7 +136,8 @@ fn cli_available() -> bool {
 }
 
 /// Tạo Command cho `claude`. Trên Windows, shim `.cmd`/`.bat` không exec trực tiếp
-/// qua CreateProcess được nên phải gọi qua `cmd /C`.
+/// qua CreateProcess được nên phải gọi qua `cmd /C`; đồng thời đặt CREATE_NO_WINDOW
+/// để app desktop (GUI) KHÔNG bật cửa sổ console đen mỗi lần spawn `claude`.
 fn claude_command(bin: &Path) -> tokio::process::Command {
     #[cfg(windows)]
     {
@@ -144,13 +145,20 @@ fn claude_command(bin: &Path) -> tokio::process::Command {
             .extension()
             .and_then(|e| e.to_str())
             .map(|s| s.to_ascii_lowercase());
-        if matches!(ext.as_deref(), Some("cmd") | Some("bat")) {
+        let mut c = if matches!(ext.as_deref(), Some("cmd") | Some("bat")) {
             let mut c = tokio::process::Command::new("cmd");
             c.arg("/C").arg(bin);
-            return c;
-        }
+            c
+        } else {
+            tokio::process::Command::new(bin)
+        };
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        c
     }
-    tokio::process::Command::new(bin)
+    #[cfg(not(windows))]
+    {
+        tokio::process::Command::new(bin)
+    }
 }
 
 /// Backend đang hiệu lực (env ép > auto-detect).
