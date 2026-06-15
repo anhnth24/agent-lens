@@ -30,10 +30,12 @@ jobs:
         with:
           workspaces: agentlens/desktop/src-tauri -> target
 
-      # cài tauri-cli nhanh qua bản binary dựng sẵn
-      - uses: cargo-bins/cargo-binstall@main
+      # cài tauri-cli bằng binary prebuilt (không phụ thuộc cargo metadata
+      # nên không bị rust-cache khôi phục "đã cài" nhưng thiếu binary)
       - name: Install Tauri CLI
-        run: cargo binstall -y tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli
 
       - name: Build desktop bundle
         working-directory: agentlens/desktop/src-tauri
