@@ -46,8 +46,10 @@ cd agentlens
 ./run.sh            # hiện menu; hoặc chọn nhanh: ./run.sh 2  (build release)
 ```
 
-- **Windows:** chạy qua **Git Bash** (chuột phải → *Git Bash Here* → `./run.sh`) hoặc **WSL** (`bash run.sh`). Build release tạo `target/release/agentlens.exe`. Cần Rust + **MSVC Build Tools** (để biên dịch SQLite bundled).
+- **Windows:** dùng **`run.bat`** — **double-click chạy được** (hoặc `run.bat` trong CMD/PowerShell). Không cần Git Bash. Nếu thích bash thì `run.sh` chạy được qua **Git Bash**/**WSL**. Build release tạo `target\release\agentlens.exe`. Cần Rust + **MSVC Build Tools** (để biên dịch SQLite bundled).
 - **macOS/Linux:** chạy trực tiếp `./run.sh`.
+
+Cả hai script đều có chung menu và hỗ trợ chọn nhanh: `run.bat 2` / `./run.sh 2` (build release).
 
 ## Cách 2 — App desktop (Tauri 2)
 
