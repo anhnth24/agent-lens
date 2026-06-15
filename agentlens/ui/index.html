@@ -266,6 +266,18 @@
     header{ padding:0 12px; }
     main{ padding:14px; }
   }
+  /* ── footer ── */
+  #appfoot{ display:flex; align-items:center; gap:12px; justify-content:space-between;
+    padding:8px 16px; border-top:2px solid var(--border); background:var(--surface);
+    font-size:11px; color:var(--muted); }
+  #appfoot .ft-left{ font-weight:600; letter-spacing:.02em; }
+  .ft-llm{ display:inline-flex; align-items:center; gap:7px; }
+  .ft-chip{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px;
+    border:2px solid var(--border); background:var(--bg); font-weight:600; }
+  .ft-chip.sub{ border-color:var(--accent); color:var(--accent); }
+  .ft-chip.api{ color:var(--text); }
+  .ft-chip.off{ opacity:.7; }
+  .ft-dot{ width:7px; height:7px; background:currentColor; display:inline-block; }
 </style>
 </head>
 <body>
@@ -302,6 +314,10 @@
   </aside>
   <main id="main"><div class="empty">Đang tải…</div></main>
 </div>
+<footer id="appfoot">
+  <span class="ft-left">AgentLens · local-first</span>
+  <span class="ft-llm" id="llmStatus" title="Trạng thái LLM dùng cho Insight/Tóm tắt"></span>
+</footer>
 
 <script>
 const fmt = n => (n ?? 0).toLocaleString('en-US');
@@ -390,6 +406,33 @@ async function loadTotals(){
   if(t.loc_added||t.loc_removed)
     h += card('code','LOC',`<span class="tin">+${fmt(t.loc_added)}</span><span style="color:var(--muted)">/</span><span style="color:var(--red)">-${fmt(t.loc_removed)}</span>`,'','từ OTEL');
   document.getElementById('totals').innerHTML = h;
+}
+
+// Footer: trạng thái LLM/auth cho Insight. Chỉ hiển thị cái đọc được
+// (backend + auth_method). Số dư quota subscription Claude Code KHÔNG expose.
+async function loadLlmStatus(){
+  const el = document.getElementById('llmStatus');
+  if(!el) return;
+  let s; try { s = await j('/api/llm-status'); } catch(e){ el.innerHTML=''; return; }
+  if(!s.enabled){
+    el.innerHTML = `<span class="ft-chip off">${ic('bulb',12)} Insight: tắt</span>`;
+    el.title = 'Đặt ANTHROPIC_API_KEY, hoặc `claude` + /login subscription để bật Insight';
+    return;
+  }
+  const am = s.auth && s.auth.auth_method;
+  const sub = s.backend==='cli' && am==='oauth_token';
+  const cls = sub ? 'sub' : (s.backend==='cli' ? 'off' : 'api');
+  let label;
+  if(sub) label = 'Insight: subscription (claude -p)';
+  else if(s.backend==='cli') label = 'Insight: claude -p (chưa /login?)';
+  else label = 'Insight: API key';
+  el.innerHTML = `<span class="ft-chip ${cls}"><span class="ft-dot"></span>${label}</span>`;
+  el.title = sub
+    ? 'Dùng login subscription qua `claude -p` — usage trừ vào credit Agent SDK hằng tháng. '
+      + '(Claude Code không cung cấp số dư credit còn lại nên không hiển thị được con số.)'
+    : (s.backend==='cli'
+        ? 'Có `claude` nhưng auth='+(am||'?')+' — chạy `claude auth login` để dùng subscription.'
+        : 'Gọi Messages API bằng ANTHROPIC_API_KEY (pay-as-you-go), không trừ credit subscription.');
 }
 
 async function loadRepos(){
@@ -1099,8 +1142,10 @@ function connectWS(){
   applyTheme(saved);
   try { await loadTotals(); await loadRepos(); await selectRepo(null); }
   catch(e){ document.getElementById('main').innerHTML = `<div class="empty">Lỗi: ${esc(e.message)}</div>`; }
+  loadLlmStatus();                   // footer: trạng thái LLM/auth
   connectWS();                       // live update qua WebSocket
   setInterval(loadTotals, 8000);     // fallback poll tổng
+  setInterval(loadLlmStatus, 60000); // refresh trạng thái auth định kỳ
 })();
 </script>
 </body>

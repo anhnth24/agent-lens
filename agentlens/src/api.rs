@@ -324,6 +324,18 @@ pub async fn list_insights(State(state): State<AppState>) -> ApiResult {
     Ok(Json(store::list_insights(&conn, 20).map_err(err)?))
 }
 
+/// Trạng thái LLM/auth (FR-8) cho footer UI. Chỉ trả thông tin **đọc được**:
+/// backend đang dùng + auth_method từ `claude auth status`. Số dư credit/quota
+/// subscription KHÔNG được Claude Code expose nên không có ở đây.
+pub async fn llm_status() -> ApiResult {
+    Ok(Json(json!({
+        "enabled": llm::is_enabled(),
+        "backend": llm::backend_kind(),
+        "backend_label": llm::backend_label(),
+        "auth": llm::cli_auth_status().await,
+    })))
+}
+
 /// Cross-session LLM insight: gộp metrics (tool/lỗi/cost/prompt đắt) → đề xuất cải thiện.
 pub async fn analyze_insights(
     State(state): State<AppState>,

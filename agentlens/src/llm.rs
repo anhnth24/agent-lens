@@ -114,6 +114,41 @@ pub fn backend_label() -> &'static str {
     }
 }
 
+/// Trạng thái auth của `claude` CLI: chạy `claude auth status --json`.
+/// Trả về JSON {logged_in, auth_method, provider} hoặc null nếu không có CLI/lỗi.
+/// LƯU Ý: Claude Code **không** expose số dư credit/quota subscription còn lại —
+/// chỉ có auth_method (`oauth_token` = subscription, `api_key` = pay-as-you-go).
+pub async fn cli_auth_status() -> Value {
+    if !cli_available() {
+        return Value::Null;
+    }
+    let out = tokio::process::Command::new("claude")
+        .arg("auth")
+        .arg("status")
+        .arg("--json")
+        .output()
+        .await;
+    match out {
+        Ok(o) if o.status.success() => match serde_json::from_slice::<Value>(&o.stdout) {
+            Ok(v) => json!({
+                "logged_in": v.get("loggedIn").and_then(|x| x.as_bool()),
+                "auth_method": v.get("authMethod").and_then(|x| x.as_str()),
+                "provider": v.get("apiProvider").and_then(|x| x.as_str()),
+            }),
+            Err(_) => Value::Null,
+        },
+        _ => Value::Null,
+    }
+}
+
+/// Backend đang chọn dưới dạng chuỗi ngắn cho API/UI.
+pub fn backend_kind() -> &'static str {
+    match backend() {
+        Backend::Api => "api",
+        Backend::Cli => "cli",
+    }
+}
+
 /// Tóm tắt 1 session + gợi ý cải thiện workflow.
 pub async fn summarize(session_brief: &str) -> Result<String> {
     let prompt = format!(
