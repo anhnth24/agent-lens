@@ -9,8 +9,12 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+serde_json = "1"
 agentlens = { path = "../.." }
 tokio = { version = "1", features = ["rt-multi-thread"] }
+dirs = "5"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

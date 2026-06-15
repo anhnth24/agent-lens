@@ -282,6 +282,7 @@
     font-size:11px; color:var(--muted);
     position:sticky; bottom:0; z-index:50; }
   #appfoot .ft-left{ font-weight:600; letter-spacing:.02em; display:inline-flex; align-items:center; gap:10px; }
+  .ft-ver{ color:var(--muted); font-weight:600; }
   .upd-link{ color:var(--accent); font-weight:700; text-decoration:none; }
   .upd-link:hover{ text-decoration:underline; }
   .ft-right{ display:inline-flex; align-items:center; gap:12px; }
@@ -1208,14 +1209,16 @@ async function refreshCurrent(){
 }
 function liveDebounced(){ clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshCurrent, 600); }
 
-// Footer: kiểm tra bản mới qua GitHub Releases (chỉ thông báo + link, không tự cài).
+// Footer: luôn hiện version hiện tại; kèm "Bản mới" khi GitHub Releases có bản mới hơn.
 async function checkUpdate(){
   const el = document.getElementById('updChip'); if(!el) return;
   try {
     const u = await j('/api/update-check');
-    el.innerHTML = (u && u.update_available)
-      ? ` · <a class="upd-link" href="${esc(u.url)}" target="_blank" rel="noopener" title="Đang dùng ${esc(u.current)} — có bản ${esc(u.latest)}, bấm để tải">⬆ Bản mới ${esc(u.latest)}</a>`
-      : '';
+    let h = (u && u.current) ? ` · <span class="ft-ver" title="Phiên bản đang dùng">v${esc(u.current)}</span>` : '';
+    if(u && u.update_available){
+      h += ` <a class="upd-link" href="${esc(u.url)}" target="_blank" rel="noopener" title="Có bản ${esc(u.latest)}, bấm để tải">⬆ Bản mới ${esc(u.latest)}</a>`;
+    }
+    el.innerHTML = h;
   } catch(e){ el.innerHTML=''; }
 }
 
