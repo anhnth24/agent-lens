@@ -16,8 +16,20 @@ Công cụ **local** theo dõi & review session **Claude Code**: thu hook + tran
 - **Insight (LLM)** — tóm tắt 1 session hoặc phân tích cross-session để gợi ý cải thiện (tùy chọn; **API key** hoặc **subscription** qua `claude -p`; có redaction).
 - **Footer** — chip trạng thái LLM (subscription / api-key / tắt), **combobox chọn model** (Haiku/Sonnet/Opus, lưu lại), và **ước tính chi tiêu tháng** (theo bảng giá — *không* phải số dư credit subscription, vì Claude Code không cung cấp số dư).
 - **Giao diện** — pixel/retro, 2 theme **sáng/tối** (nút ☀/🌙, nhớ lựa chọn), lọc thời gian today/7d/30d/90d, tìm kiếm full-text. Áp dụng design system từ skill `ui-ux-pro-max`.
+- **Desktop + auto-update** — bản đóng gói (Tauri 2) tự chạy server lõi bên trong; khi mở app tự kiểm tra **GitHub Releases**, có bản mới thì hỏi cập nhật (tải + cài + khởi động lại, bản update được **ký số** minisign). Footer hiện **version đang dùng** + chip **"⬆ Bản mới"** (cũng dùng được ở chế độ web qua `/api/update-check`).
 
-## Yêu cầu
+## Cài nhanh (bản dựng sẵn — không cần Rust)
+
+Tải bản mới nhất ở **[Releases](https://github.com/anhnth24/agent-lens/releases/latest)** rồi cài:
+
+- **Windows:** `AgentLens_x.y.z_x64-setup.exe` (hoặc `.msi`). SmartScreen cảnh báo → *More info → Run anyway*.
+- **macOS Apple Silicon (M1+):** `AgentLens_x.y.z_aarch64.dmg` · **Intel:** `..._x64.dmg`. Lần đầu mở: **chuột phải app → Open** (app ad-hoc sign, chưa notarize Apple).
+
+App **tự chứa** (nhúng server lõi) — double-click là chạy, tự đọc `~/.claude/projects` trên máy đó và mở dashboard. **Tự cập nhật:** khi có bản mới trên Releases, lúc mở app sẽ hiện popup hỏi *Cập nhật ngay / Để sau / Bỏ qua bản này*.
+
+> Muốn build/chạy từ source → xem các phần dưới.
+
+## Yêu cầu (build từ source)
 
 - **Rust** (stable, kèm `cargo`).
 - Chạy **server/headless**: không cần gì thêm.
@@ -39,7 +51,7 @@ Mở <http://127.0.0.1:8787>. Tailer tự quét `~/.claude/projects/**/*.jsonl` 
 
 ### Launcher có menu (`run.sh`) — tiện cho Windows
 
-Có sẵn script menu cho các thao tác hay dùng (chạy server, build release, desktop, chọn backend LLM):
+Có sẵn script menu cho các thao tác hay dùng (chạy server, build release, desktop, chọn backend LLM, **dev hot-reload** — option 6: `cargo watch` + UI đọc từ disk):
 
 ```bash
 cd agentlens
@@ -70,6 +82,25 @@ cargo tauri build                            # output ở target/release/bundle/
 
 Kết quả: `.deb`/`.AppImage` (Linux), `.dmg`/`.app` (macOS), `.msi`/`.exe` (Windows) trong `target/release/bundle/`.
 
+> **Tauri KHÔNG cross-compile macOS** — bundle `.dmg`/`.app` phải build trên máy/CI macOS thật.
+
+## Phát hành (CI) + auto-update
+
+Workflow `.github/workflows/agentlens-desktop-build.yml` build đa nền (macOS arm64 + Intel, Windows):
+
+- **Chạy thử:** Actions → *AgentLens Desktop Build* → **Run workflow** (upload artifact, không ký, không release).
+- **Phát hành + bật auto-update:** push tag `agentlens-v*` → `tauri-action` build + **ký** + tạo **GitHub Release** kèm bộ cài và `latest.json`.
+
+```bash
+# sửa code → bump version ở agentlens/Cargo.toml VÀ desktop/src-tauri/tauri.conf.json
+git commit -am "chore: bump 0.1.4"
+git tag agentlens-v0.1.4 && git push origin main agentlens-v0.1.4
+```
+
+→ App đang cài (đời cũ hơn) sẽ tự hiện popup cập nhật. Cần 2 secret repo cho việc ký: `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (sinh bằng `tauri signer generate`; public key đặt trong `tauri.conf.json > plugins.updater.pubkey`). Endpoint updater đổi qua env `AGENTLENS_REPO` (mặc định `anhnth24/agent-lens`).
+
+> macOS hiện **ad-hoc sign** (đỡ "damaged", chỉ cần chuột phải → Open). Muốn mở thẳng không cảnh báo + auto-update Mac sạch → cần **Apple Developer ($99/năm)** để ký + notarize.
+
 ## Biến môi trường (tùy chọn)
 
 | Env | Mặc định | Ý nghĩa |
@@ -83,6 +114,8 @@ Kết quả: `.deb`/`.AppImage` (Linux), `.dmg`/`.app` (macOS), `.msi`/`.exe` (W
 | `AGENTLENS_LLM_BACKEND` | auto | ép backend LLM: `api` (dùng API key) hoặc `cli` (dùng `claude -p`, kế thừa login subscription). Auto: có API key → `api`, không → `cli` nếu có `claude` |
 | `AGENTLENS_CLAUDE_BIN` | tự dò PATH | đường dẫn tới `claude` (dùng khi không nằm trên PATH, hoặc Windows dùng shim `claude.cmd`). VD `C:\Users\me\AppData\Roaming\npm\claude.cmd` |
 | `AGENTLENS_MODEL` | `claude-haiku-4-5` | model cho LLM. Có thể đổi nhanh bằng **combobox ở footer** (Haiku/Sonnet/Opus) — lựa chọn footer lưu vào DB và **ưu tiên hơn** env này |
+| `AGENTLENS_REPO` | `anhnth24/agent-lens` | repo GitHub để kiểm tra bản mới (`/api/update-check`) |
+| `AGENTLENS_DEV_UI` | — | `=1` → đọc `ui/index.html` từ disk mỗi request (sửa UI chỉ cần F5; dùng cho dev) |
 
 > **Chi phí là ước tính** theo bảng giá (built-in hoặc LiteLLM) — phụ thuộc nguồn giá, không phải hóa đơn chính thức.
 
@@ -178,7 +211,8 @@ AgentLens trích `cost.usage`, `lines_of_code.count`, `commit.count`, `pull_requ
 | GET | `/api/tools\|files\|slowest\|sequences\|outcomes\|heatmap` | phân tích tool/file/hoạt động |
 | GET | `/api/health-trend\|leaderboard\|digest` | sức khỏe theo tuần · repo leaderboard · digest |
 | GET | `/api/recovery\|prompt-styles\|prompt-insights\|cache-advisor\|model-rightsizing\|agents\|error-clusters` | phân tích chất lượng |
-| GET | `/api/search?q=` · `/api/insights` · POST `/api/insights/analyze` | tìm kiếm · insight đã lưu · phân tích cross-session |
+| GET | `/api/search?q=` · `/api/insights?project=` · POST `/api/insights/analyze?project=` | tìm kiếm · insight đã lưu (lọc repo) · phân tích cross-session theo repo |
+| GET | `/api/llm-status` · `/api/update-check` | trạng thái LLM/auth + version · kiểm tra bản mới (GitHub Releases) |
 | GET | `/ws` | WebSocket báo update (live) |
 
 ## Dữ liệu & quyền riêng tư
