@@ -131,6 +131,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/v1/traces", post(api::otlp_accept))
         .route("/api/search", get(api::search))
         .route("/api/llm-status", get(api::llm_status))
+        .route("/api/update-check", get(api::update_check))
         .route("/api/llm-model", post(api::set_llm_model))
         .route("/api/insights", get(api::list_insights))
         .route("/api/insights/analyze", post(api::analyze_insights))

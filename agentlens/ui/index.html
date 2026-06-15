@@ -282,6 +282,8 @@
     font-size:11px; color:var(--muted);
     position:sticky; bottom:0; z-index:50; }
   #appfoot .ft-left{ font-weight:600; letter-spacing:.02em; display:inline-flex; align-items:center; gap:10px; }
+  .upd-link{ color:var(--accent); font-weight:700; text-decoration:none; }
+  .upd-link:hover{ text-decoration:underline; }
   .ft-right{ display:inline-flex; align-items:center; gap:12px; }
   .ft-est{ font-weight:600; color:var(--text); }
   .ft-est .est-tag{ color:var(--muted); font-weight:600; }
@@ -335,6 +337,7 @@
 <footer id="appfoot">
   <span class="ft-left">AgentLens · local-first
     <span id="monthEst" class="ft-est" title="Ước tính theo bảng giá — tổng cost mọi session AgentLens ghi được trong tháng. KHÔNG phải số dư credit subscription (Claude Code không cung cấp)."></span>
+    <span id="updChip"></span>
   </span>
   <span class="ft-right">
     <span class="ft-llm" id="llmStatus" title="Trạng thái LLM dùng cho Insight/Tóm tắt"></span>
@@ -1205,6 +1208,17 @@ async function refreshCurrent(){
 }
 function liveDebounced(){ clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshCurrent, 600); }
 
+// Footer: kiểm tra bản mới qua GitHub Releases (chỉ thông báo + link, không tự cài).
+async function checkUpdate(){
+  const el = document.getElementById('updChip'); if(!el) return;
+  try {
+    const u = await j('/api/update-check');
+    el.innerHTML = (u && u.update_available)
+      ? ` · <a class="upd-link" href="${esc(u.url)}" target="_blank" rel="noopener" title="Đang dùng ${esc(u.current)} — có bản ${esc(u.latest)}, bấm để tải">⬆ Bản mới ${esc(u.latest)}</a>`
+      : '';
+  } catch(e){ el.innerHTML=''; }
+}
+
 function connectWS(){
   try {
     const ws = new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
@@ -1219,8 +1233,10 @@ function connectWS(){
   try { await loadTotals(); await loadRepos(); await selectRepo(null); }
   catch(e){ document.getElementById('main').innerHTML = `<div class="empty">Lỗi: ${esc(e.message)}</div>`; }
   loadLlmStatus();                   // footer: trạng thái LLM/auth
+  checkUpdate();                     // footer: báo có bản mới (GitHub Releases)
   connectWS();                       // live update qua WebSocket
   setInterval(loadTotals, 8000);     // fallback poll tổng
+  setInterval(checkUpdate, 6*3600*1000); // check bản mới mỗi 6h
   // Fallback poll tab Live: WS chỉ bắn khi transcript đổi nên dễ lỡ nhịp khi
   // server restart/đứt mạng hoặc Claude idle → poll 4s để Live luôn đồng bộ.
   setInterval(() => {

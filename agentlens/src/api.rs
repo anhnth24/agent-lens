@@ -329,6 +329,69 @@ pub async fn list_insights(
     Ok(Json(store::list_insights(&conn, project, 20).map_err(err)?))
 }
 
+/// Tách (major, minor, patch) từ chuỗi version/tag bất kỳ (vd "agentlens-v0.1.2" -> (0,1,2)).
+fn ver_tuple(s: &str) -> (u32, u32, u32) {
+    let nums: Vec<u32> = s
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|p| !p.is_empty())
+        .filter_map(|p| p.parse().ok())
+        .collect();
+    (
+        nums.first().copied().unwrap_or(0),
+        nums.get(1).copied().unwrap_or(0),
+        nums.get(2).copied().unwrap_or(0),
+    )
+}
+
+/// Kiểm tra bản mới qua GitHub Releases (repo public, không cần token).
+/// Trả {current, latest, update_available, url}. Lỗi mạng/không có release -> update_available=false.
+/// Đổi repo qua env AGENTLENS_REPO ("owner/name").
+pub async fn update_check() -> ApiResult {
+    let current = env!("CARGO_PKG_VERSION");
+    let repo =
+        std::env::var("AGENTLENS_REPO").unwrap_or_else(|_| "anhnth24/workflow-agent".to_string());
+    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+
+    let fetch = async {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .ok()?;
+        let v: Value = client
+            .get(&url)
+            .header("User-Agent", "agentlens")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        let tag = v.get("tag_name").and_then(|x| x.as_str())?.to_string();
+        let html = v
+            .get("html_url")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        Some((tag, html))
+    };
+
+    let (latest, rel_url, available) = match fetch.await {
+        Some((tag, html)) => {
+            let avail = ver_tuple(&tag) > ver_tuple(current);
+            (tag, html, avail)
+        }
+        None => (String::new(), String::new(), false),
+    };
+
+    Ok(Json(json!({
+        "current": current,
+        "latest": latest,
+        "update_available": available,
+        "url": rel_url,
+    })))
+}
+
 /// Trạng thái LLM/auth (FR-8) cho footer UI. Chỉ trả thông tin **đọc được**:
 /// backend + auth_method (`claude auth status`) + model hiệu lực + danh sách model.
 /// `month_cost_usd` là **ƯỚC TÍNH** theo bảng giá (gồm mọi session AgentLens ghi
