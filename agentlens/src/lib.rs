@@ -59,6 +59,12 @@ pub async fn run() -> anyhow::Result<()> {
 
     let conn = store::open(&db_path)?;
     store::recompute_costs(&conn)?; // cập nhật cost (kể cả row cũ) theo bảng giá hiện tại
+    // khôi phục model LLM đã chọn ở footer (nếu có)
+    if let Ok(Some(m)) = store::get_setting(&conn, "llm_model") {
+        if !m.is_empty() {
+            llm::set_model_override(Some(m));
+        }
+    }
     let (events_tx, _) = tokio::sync::broadcast::channel(64);
     let state = AppState {
         db: Arc::new(Mutex::new(conn)),
@@ -126,6 +132,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/v1/traces", post(api::otlp_accept))
         .route("/api/search", get(api::search))
         .route("/api/llm-status", get(api::llm_status))
+        .route("/api/llm-model", post(api::set_llm_model))
         .route("/api/insights", get(api::list_insights))
         .route("/api/insights/analyze", post(api::analyze_insights))
         .route("/ws", get(api::ws))

@@ -13,12 +13,46 @@ use anyhow::{anyhow, Result};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::process::Stdio;
+use std::sync::RwLock;
 
 const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
-const DEFAULT_MODEL_API: &str = "claude-haiku-4-5-20251001";
-const DEFAULT_MODEL_CLI: &str = "haiku";
+const DEFAULT_MODEL: &str = "claude-haiku-4-5";
 const MAX_INPUT_CHARS: usize = 12_000;
+
+/// Override model chọn từ UI (footer). Ưu tiên hơn AGENTLENS_MODEL env.
+static MODEL_OVERRIDE: RwLock<Option<String>> = RwLock::new(None);
+
+/// Các model cho combobox ở footer (full ID — chạy cho cả backend api & cli).
+pub const MODEL_CHOICES: &[(&str, &str)] = &[
+    ("claude-haiku-4-5", "Haiku 4.5 · rẻ, nhanh"),
+    ("claude-sonnet-4-6", "Sonnet 4.6 · cân bằng"),
+    ("claude-opus-4-8", "Opus 4.8 · mạnh nhất"),
+];
+
+/// Đặt override model (None/rỗng = xóa, quay về env/default).
+pub fn set_model_override(m: Option<String>) {
+    let val = m.and_then(|s| {
+        let t = s.trim().to_string();
+        if t.is_empty() { None } else { Some(t) }
+    });
+    if let Ok(mut w) = MODEL_OVERRIDE.write() {
+        *w = val;
+    }
+}
+
+/// Model hiệu lực: override (UI) > AGENTLENS_MODEL env > mặc định.
+pub fn current_model() -> String {
+    if let Ok(r) = MODEL_OVERRIDE.read() {
+        if let Some(m) = r.clone() {
+            return m;
+        }
+    }
+    match std::env::var("AGENTLENS_MODEL") {
+        Ok(m) if !m.is_empty() => m,
+        _ => DEFAULT_MODEL.to_string(),
+    }
+}
 
 /// Ẩn secret/key/token/password trước khi gửi ra LLM.
 pub fn redact(input: &str) -> String {
@@ -177,7 +211,7 @@ pub async fn ask(prompt: &str) -> Result<String> {
 /// Backend API: Anthropic Messages API bằng x-api-key (pay-as-you-go).
 async fn ask_api(content: &str) -> Result<String> {
     let api_key = api_key().ok_or_else(|| anyhow!("chưa đặt ANTHROPIC_API_KEY — LLM (api) tắt"))?;
-    let model = std::env::var("AGENTLENS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL_API.to_string());
+    let model = current_model();
 
     let body = json!({
         "model": model,
@@ -224,7 +258,7 @@ async fn ask_api(content: &str) -> Result<String> {
 /// Chạy trong thư mục tạm để KHÔNG nạp CLAUDE.md/hook/skill của repo hiện tại
 /// (tránh nhiễu + tránh hook AgentLens tự ghi lại chính lần gọi này).
 async fn ask_cli(content: &str) -> Result<String> {
-    let model = std::env::var("AGENTLENS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL_CLI.to_string());
+    let model = current_model();
 
     let mut child = tokio::process::Command::new("claude")
         .arg("-p")

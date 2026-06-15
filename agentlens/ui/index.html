@@ -270,7 +270,14 @@
   #appfoot{ display:flex; align-items:center; gap:12px; justify-content:space-between;
     padding:8px 16px; border-top:2px solid var(--border); background:var(--surface);
     font-size:11px; color:var(--muted); }
-  #appfoot .ft-left{ font-weight:600; letter-spacing:.02em; }
+  #appfoot .ft-left{ font-weight:600; letter-spacing:.02em; display:inline-flex; align-items:center; gap:10px; }
+  .ft-right{ display:inline-flex; align-items:center; gap:12px; }
+  .ft-est{ font-weight:600; color:var(--text); }
+  .ft-est .est-tag{ color:var(--muted); font-weight:600; }
+  .ft-model{ display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-weight:600; }
+  .ft-model select{ font:inherit; font-size:11px; padding:2px 6px; background:var(--bg);
+    color:var(--text); border:2px solid var(--border); border-radius:0; cursor:pointer; }
+  .ft-model select:hover{ border-color:var(--accent); }
   .ft-llm{ display:inline-flex; align-items:center; gap:7px; }
   .ft-chip{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px;
     border:2px solid var(--border); background:var(--bg); font-weight:600; }
@@ -315,8 +322,15 @@
   <main id="main"><div class="empty">Đang tải…</div></main>
 </div>
 <footer id="appfoot">
-  <span class="ft-left">AgentLens · local-first</span>
-  <span class="ft-llm" id="llmStatus" title="Trạng thái LLM dùng cho Insight/Tóm tắt"></span>
+  <span class="ft-left">AgentLens · local-first
+    <span id="monthEst" class="ft-est" title="Ước tính theo bảng giá — tổng cost mọi session AgentLens ghi được trong tháng. KHÔNG phải số dư credit subscription (Claude Code không cung cấp)."></span>
+  </span>
+  <span class="ft-right">
+    <span class="ft-llm" id="llmStatus" title="Trạng thái LLM dùng cho Insight/Tóm tắt"></span>
+    <label class="ft-model" title="Model dùng cho Insight/Tóm tắt (lưu lại qua restart)">model
+      <select id="llmModel" onchange="setLlmModel(this.value)"></select>
+    </label>
+  </span>
 </footer>
 
 <script>
@@ -408,12 +422,26 @@ async function loadTotals(){
   document.getElementById('totals').innerHTML = h;
 }
 
-// Footer: trạng thái LLM/auth cho Insight. Chỉ hiển thị cái đọc được
-// (backend + auth_method). Số dư quota subscription Claude Code KHÔNG expose.
+// Footer: trạng thái LLM/auth + model + ước tính chi tiêu tháng. Chỉ hiển thị cái
+// đọc được; số dư quota subscription Claude Code KHÔNG expose nên không có.
 async function loadLlmStatus(){
   const el = document.getElementById('llmStatus');
+  const sel = document.getElementById('llmModel');
+  const est = document.getElementById('monthEst');
   if(!el) return;
   let s; try { s = await j('/api/llm-status'); } catch(e){ el.innerHTML=''; return; }
+
+  // chi tiêu tháng (ước tính)
+  if(est) est.innerHTML = `· ≈${money(s.month_cost_usd)} <span class="est-tag">tháng ${s.month||''} (ước tính)</span>`;
+
+  // combobox model
+  if(sel){
+    sel.innerHTML = (s.models||[]).map(m =>
+      `<option value="${m.id}"${m.id===s.model?' selected':''}>${esc(m.label)}</option>`).join('');
+    sel.disabled = !s.enabled;
+  }
+
+  // chip backend/auth
   if(!s.enabled){
     el.innerHTML = `<span class="ft-chip off">${ic('bulb',12)} Insight: tắt</span>`;
     el.title = 'Đặt ANTHROPIC_API_KEY, hoặc `claude` + /login subscription để bật Insight';
@@ -433,6 +461,14 @@ async function loadLlmStatus(){
     : (s.backend==='cli'
         ? 'Có `claude` nhưng auth='+(am||'?')+' — chạy `claude auth login` để dùng subscription.'
         : 'Gọi Messages API bằng ANTHROPIC_API_KEY (pay-as-you-go), không trừ credit subscription.');
+}
+
+async function setLlmModel(model){
+  try {
+    await fetch('/api/llm-model', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({model})});
+  } catch(e){ console.error(e); }
+  loadLlmStatus();
 }
 
 async function loadRepos(){

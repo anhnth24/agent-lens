@@ -78,10 +78,45 @@ CREATE TABLE IF NOT EXISTS hooks (
   tool_name       TEXT,
   permission_mode TEXT
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, ts);
 CREATE INDEX IF NOT EXISTS idx_events_prompt  ON events(prompt_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_proj  ON sessions(project);
 "#;
+
+/// Đọc 1 setting kv (None nếu chưa có).
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let v = conn
+        .query_row("SELECT value FROM settings WHERE key=?1", params![key], |r| {
+            r.get::<_, String>(0)
+        })
+        .ok();
+    Ok(v)
+}
+
+/// Ghi 1 setting kv (upsert).
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings(key,value) VALUES(?1,?2)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Tổng cost_usd (ước tính theo bảng giá) của các event có ts >= `from_iso`.
+/// Dùng cho readout "chi tiêu tháng này" ở footer.
+pub fn cost_since(conn: &Connection, from_iso: &str) -> Result<f64> {
+    let c: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(cost_usd),0) FROM events WHERE ts >= ?1",
+        params![from_iso],
+        |r| r.get(0),
+    )?;
+    Ok(c)
+}
 
 /// Mệnh đề thời gian an toàn (from do server sinh từ keyword range, không phải input thô).
 fn since(col: &str, from: Option<&str>, kw: &str) -> String {

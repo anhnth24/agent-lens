@@ -14,6 +14,7 @@ Công cụ **local** theo dõi & review session **Claude Code**: thu hook + tran
 - **Phân tích** — trend token theo ngày, health theo tuần, repo leaderboard, outcome correlation, heatmap hoạt động.
 - **Chất lượng** — digest 7 ngày, **model right-sizing**, prompt quality theo độ dài & style, recovery (gỡ lỗi), cache advisor, skill/subagent usage, error clustering.
 - **Insight (LLM)** — tóm tắt 1 session hoặc phân tích cross-session để gợi ý cải thiện (tùy chọn; **API key** hoặc **subscription** qua `claude -p`; có redaction).
+- **Footer** — chip trạng thái LLM (subscription / api-key / tắt), **combobox chọn model** (Haiku/Sonnet/Opus, lưu lại), và **ước tính chi tiêu tháng** (theo bảng giá — *không* phải số dư credit subscription, vì Claude Code không cung cấp số dư).
 - **Giao diện** — pixel/retro, 2 theme **sáng/tối** (nút ☀/🌙, nhớ lựa chọn), lọc thời gian today/7d/30d/90d, tìm kiếm full-text. Áp dụng design system từ skill `ui-ux-pro-max`.
 
 ## Yêu cầu
@@ -66,7 +67,7 @@ Kết quả: `.deb`/`.AppImage` (Linux), `.dmg`/`.app` (macOS), `.msi`/`.exe` (W
 | `AGENTLENS_PRICING_FILE` | — | file JSON giá local (ưu tiên hơn URL) |
 | `ANTHROPIC_API_KEY` | — | bật LLM backend **api** (Messages API, pay-as-you-go). Không đặt → thử backend **cli** |
 | `AGENTLENS_LLM_BACKEND` | auto | ép backend LLM: `api` (dùng API key) hoặc `cli` (dùng `claude -p`, kế thừa login subscription). Auto: có API key → `api`, không → `cli` nếu có `claude` |
-| `AGENTLENS_MODEL` | `claude-haiku-4-5-20251001` (api) / `haiku` (cli) | model cho tính năng LLM |
+| `AGENTLENS_MODEL` | `claude-haiku-4-5` | model cho LLM. Có thể đổi nhanh bằng **combobox ở footer** (Haiku/Sonnet/Opus) — lựa chọn footer lưu vào DB và **ưu tiên hơn** env này |
 
 > **Chi phí là ước tính** theo bảng giá (built-in hoặc LiteLLM) — phụ thuộc nguồn giá, không phải hóa đơn chính thức.
 

@@ -325,15 +325,49 @@ pub async fn list_insights(State(state): State<AppState>) -> ApiResult {
 }
 
 /// Trạng thái LLM/auth (FR-8) cho footer UI. Chỉ trả thông tin **đọc được**:
-/// backend đang dùng + auth_method từ `claude auth status`. Số dư credit/quota
-/// subscription KHÔNG được Claude Code expose nên không có ở đây.
-pub async fn llm_status() -> ApiResult {
+/// backend + auth_method (`claude auth status`) + model hiệu lực + danh sách model.
+/// `month_cost_usd` là **ƯỚC TÍNH** theo bảng giá (gồm mọi session AgentLens ghi
+/// được trong tháng), KHÔNG phải số dư credit subscription (Claude Code không expose).
+pub async fn llm_status(State(state): State<AppState>) -> ApiResult {
+    use chrono::{Datelike, Utc};
+    let now = Utc::now();
+    let month_start = format!("{:04}-{:02}-01T00:00:00", now.year(), now.month());
+    let month_cost = {
+        let conn = state.db.lock().unwrap();
+        store::cost_since(&conn, &month_start).unwrap_or(0.0)
+    };
+    let models: Vec<Value> = llm::MODEL_CHOICES
+        .iter()
+        .map(|(id, label)| json!({ "id": id, "label": label }))
+        .collect();
     Ok(Json(json!({
         "enabled": llm::is_enabled(),
         "backend": llm::backend_kind(),
         "backend_label": llm::backend_label(),
         "auth": llm::cli_auth_status().await,
+        "model": llm::current_model(),
+        "models": models,
+        "month": format!("{:04}-{:02}", now.year(), now.month()),
+        "month_cost_usd": month_cost,
     })))
+}
+
+/// Đặt model LLM từ footer (override runtime, lưu vào settings để giữ qua restart).
+pub async fn set_llm_model(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let model = body.get("model").and_then(|m| m.as_str()).unwrap_or("").trim().to_string();
+    // chỉ chấp nhận model trong danh sách cho phép (hoặc rỗng = reset)
+    if !model.is_empty() && !llm::MODEL_CHOICES.iter().any(|(id, _)| *id == model) {
+        return Err((StatusCode::BAD_REQUEST, format!("model không hợp lệ: {model}")));
+    }
+    {
+        let conn = state.db.lock().unwrap();
+        store::set_setting(&conn, "llm_model", &model).map_err(err)?;
+    }
+    llm::set_model_override(if model.is_empty() { None } else { Some(model.clone()) });
+    Ok(Json(json!({ "model": llm::current_model() })))
 }
 
 /// Cross-session LLM insight: gộp metrics (tool/lỗi/cost/prompt đắt) → đề xuất cải thiện.
