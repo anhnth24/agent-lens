@@ -349,7 +349,7 @@ fn ver_tuple(s: &str) -> (u32, u32, u32) {
 pub async fn update_check() -> ApiResult {
     let current = env!("CARGO_PKG_VERSION");
     let repo =
-        std::env::var("AGENTLENS_REPO").unwrap_or_else(|_| "anhnth24/workflow-agent".to_string());
+        std::env::var("AGENTLENS_REPO").unwrap_or_else(|_| "anhnth24/agent-lens".to_string());
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
 
     let fetch = async {
