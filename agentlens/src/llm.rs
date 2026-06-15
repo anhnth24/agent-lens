@@ -186,14 +186,18 @@ pub fn backend_label() -> &'static str {
 }
 
 /// Trạng thái auth của `claude` CLI: chạy `claude auth status --json`.
-/// Trả về JSON {logged_in, auth_method, provider} hoặc null nếu không có CLI/lỗi.
-/// LƯU Ý: Claude Code **không** expose số dư credit/quota subscription còn lại —
-/// chỉ có auth_method (`oauth_token` = subscription, `api_key` = pay-as-you-go).
+/// Trả về JSON {logged_in, auth_method, provider, subscription_type} hoặc null nếu không có CLI/lỗi.
+/// LƯU Ý: Claude Code **không** expose số dư credit/quota subscription còn lại.
+/// Login bằng tài khoản Claude.ai (Pro/Max) → authMethod="claude.ai", apiProvider="firstParty",
+/// có subscriptionType (vd "max"); login bằng API key → authMethod khác và không có subscriptionType.
+/// Phải resolve binary + bọc shim như `ask_cli`: trên Windows `claude` là `.cmd`,
+/// `Command::new("claude")` (CreateProcess chỉ thử `.exe`) sẽ không spawn được → Null sai.
 pub async fn cli_auth_status() -> Value {
-    if !cli_available() {
-        return Value::Null;
-    }
-    let out = tokio::process::Command::new("claude")
+    let bin = match resolve_claude() {
+        Some(b) => b,
+        None => return Value::Null,
+    };
+    let out = claude_command(&bin)
         .arg("auth")
         .arg("status")
         .arg("--json")
@@ -205,6 +209,7 @@ pub async fn cli_auth_status() -> Value {
                 "logged_in": v.get("loggedIn").and_then(|x| x.as_bool()),
                 "auth_method": v.get("authMethod").and_then(|x| x.as_str()),
                 "provider": v.get("apiProvider").and_then(|x| x.as_str()),
+                "subscription_type": v.get("subscriptionType").and_then(|x| x.as_str()),
             }),
             Err(_) => Value::Null,
         },
@@ -308,8 +313,10 @@ async fn ask_cli(content: &str) -> Result<String> {
     cmd.arg("-p")
         .arg("--model")
         .arg(&model)
+        // json để lấy kèm total_cost_usd + usage (giá quy đổi theo API, KHÔNG phải
+        // tiền thật bị trừ khi dùng subscription — chỉ để biết mức tiêu thụ mỗi lần gọi).
         .arg("--output-format")
-        .arg("text")
+        .arg("json")
         .current_dir(std::env::temp_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -337,7 +344,34 @@ async fn ask_cli(content: &str) -> Result<String> {
         ));
     }
 
-    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let raw = stdout.trim();
+
+    // Parse JSON envelope: lấy `result` (text trả lời) + log cost/usage để theo dõi tiêu thụ.
+    // Nếu không phải JSON (CLI cũ/format khác) thì coi cả stdout là text trả lời.
+    let text = match serde_json::from_str::<Value>(raw) {
+        Ok(v) => {
+            let cost = v.get("total_cost_usd").and_then(|x| x.as_f64()).unwrap_or(0.0);
+            let u = v.get("usage");
+            let tok = |k: &str| u.and_then(|x| x.get(k)).and_then(|x| x.as_i64()).unwrap_or(0);
+            tracing::info!(
+                "claude -p [{}] ~${:.4} (API-equiv, subscription không trừ tiền thật) — \
+                 in {} / out {} / cache_read {} / cache_write {} tok",
+                model,
+                cost,
+                tok("input_tokens"),
+                tok("output_tokens"),
+                tok("cache_read_input_tokens"),
+                tok("cache_creation_input_tokens"),
+            );
+            v.get("result")
+                .and_then(|x| x.as_str())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default()
+        }
+        Err(_) => raw.to_string(),
+    };
+
     if text.is_empty() {
         Err(anyhow!(
             "`claude -p` trả về rỗng — kiểm tra đã `/login` subscription chưa: {}",

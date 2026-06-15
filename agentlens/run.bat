@@ -27,6 +27,7 @@ echo    2^) Build release Windows      -^> %BIN%
 echo    3^) Chay app desktop ^(dev^)      ^(Tauri^)
 echo    4^) Dong goi cai dat desktop   ^(tauri build^)
 echo    5^) Chon backend LLM ^(api/cli^)
+echo    6^) Dev hot reload          ^(cargo watch + UI doc tu disk^)
 echo    0^) Thoat
 set "choice="
 set /p "choice=Chon: "
@@ -46,6 +47,7 @@ if "%a%"=="2" goto build_release
 if "%a%"=="3" goto run_desktop
 if "%a%"=="4" goto build_desktop
 if "%a%"=="5" goto choose_backend
+if "%a%"=="6" goto dev_watch
 echo Lua chon khong hop le: %a%
 goto :eof
 
@@ -91,6 +93,23 @@ pushd desktop\src-tauri
 cargo tauri build
 popd
 echo Luu y: Windows can WebView2 ^(thuong co san Win10/11^). Bundle o desktop\src-tauri\target\release\bundle.
+goto pause
+
+:dev_watch
+call :need_cargo || goto pause
+cargo watch --version >nul 2>nul
+if errorlevel 1 (
+  echo Chua co cargo-watch. Cai bang: cargo install cargo-watch
+  set "yn="
+  set /p "yn=Cai ngay? [y/N] "
+  if /i "!yn!"=="y" ( cargo install cargo-watch ) else ( goto pause )
+)
+REM AGENTLENS_DEV_UI=1: ui.rs doc index.html tu disk -^> sua HTML chi can F5 browser.
+REM cargo watch -i "ui/**": bo qua thu muc UI -^> chi rebuild+restart khi sua .rs.
+set "AGENTLENS_DEV_UI=1"
+echo [DEV] Hot reload: sua .rs -^> tu build+restart; sua ui\index.html -^> chi F5 browser.
+echo       Server: http://127.0.0.1:8787  ^(Ctrl+C de dung^)
+cargo watch -i "ui/**" -x run
 goto pause
 
 :choose_backend

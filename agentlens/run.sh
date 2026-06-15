@@ -71,6 +71,21 @@ build_desktop() {         # 4) đóng gói cài đặt desktop (Tauri)
   echo "${Y}Lưu ý:${N} Linux cần WebKitGTK; Windows cần WebView2; bundle nằm trong desktop/src-tauri/target/release/bundle."
 }
 
+dev_watch() {             # 6) dev hot reload: cargo watch + UI đọc từ disk
+  need_cargo || return
+  if ! cargo watch --version >/dev/null 2>&1; then
+    echo "${Y}Chưa có cargo-watch.${N} Cài bằng: ${B}cargo install cargo-watch${N}"
+    read -r -p "Cài ngay? [y/N] " a
+    case "$a" in y|Y) cargo install cargo-watch || return ;; *) return ;; esac
+  fi
+  # AGENTLENS_DEV_UI=1: ui.rs đọc index.html từ disk → sửa HTML chỉ cần F5 browser.
+  # cargo watch -i "ui/**": bỏ qua thư mục UI → chỉ rebuild+restart khi sửa .rs.
+  export AGENTLENS_DEV_UI=1
+  echo "${G}▶ Dev hot reload${N} → http://127.0.0.1:8787  (Ctrl+C để dừng)"
+  echo "  sửa .rs → tự build+restart; sửa ui/index.html → chỉ F5 browser."
+  cargo watch -i "ui/**" -x run
+}
+
 choose_backend() {        # 5) chọn backend LLM cho Insight (api key / subscription)
   echo "  LLM backend cho tính năng Insight/Tóm tắt:"
   echo "    a) api  — dùng ANTHROPIC_API_KEY (pay-as-you-go)"
@@ -94,6 +109,7 @@ do_action() {
     3) run_desktop ;;
     4) build_desktop ;;
     5) choose_backend ;;
+    6) dev_watch ;;
     0|q|Q) exit 0 ;;
     *) echo "${R}Lựa chọn không hợp lệ: $1${N}" ;;
   esac
@@ -113,8 +129,9 @@ while true; do
   echo "  ${C}3${N}) Chạy app desktop (dev)       (Tauri)"
   echo "  ${C}4${N}) Đóng gói cài đặt desktop     (tauri build)"
   echo "  ${C}5${N}) Chọn backend LLM (api/cli)"
+  echo "  ${C}6${N}) Dev hot reload          (cargo watch + UI đọc từ disk)"
   echo "  ${C}0${N}) Thoát"
   read -r -p "Chọn: " choice || exit 0
   do_action "$choice"
-  case "$choice" in 1|3) ;; *) pause ;; esac   # 1/3 chạy lâu, không pause
+  case "$choice" in 1|3|6) ;; *) pause ;; esac   # 1/3/6 chạy lâu, không pause
 done
