@@ -319,9 +319,14 @@ pub async fn set_tag(
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn list_insights(State(state): State<AppState>) -> ApiResult {
+pub async fn list_insights(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> ApiResult {
+    // project = repo -> chỉ insight của repo đó; không có -> tất cả.
+    let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
     let conn = state.db.lock().unwrap();
-    Ok(Json(store::list_insights(&conn, 20).map_err(err)?))
+    Ok(Json(store::list_insights(&conn, project, 20).map_err(err)?))
 }
 
 /// Trạng thái LLM/auth (FR-8) cho footer UI. Chỉ trả thông tin **đọc được**:
@@ -332,9 +337,12 @@ pub async fn llm_status(State(state): State<AppState>) -> ApiResult {
     use chrono::{Datelike, Utc};
     let now = Utc::now();
     let month_start = format!("{:04}-{:02}-01T00:00:00", now.year(), now.month());
-    let month_cost = {
+    let (month_cost, self_cost) = {
         let conn = state.db.lock().unwrap();
-        store::cost_since(&conn, &month_start).unwrap_or(0.0)
+        (
+            store::cost_since(&conn, &month_start).unwrap_or(0.0),
+            store::self_cost_since(&conn, &month_start).unwrap_or(0.0),
+        )
     };
     let models: Vec<Value> = llm::MODEL_CHOICES
         .iter()
@@ -349,6 +357,7 @@ pub async fn llm_status(State(state): State<AppState>) -> ApiResult {
         "models": models,
         "month": format!("{:04}-{:02}", now.year(), now.month()),
         "month_cost_usd": month_cost,
+        "self_cost_usd": self_cost,
     })))
 }
 

@@ -19,7 +19,7 @@
     --radius:0px; --radius-sm:0px; --radius-pill:0px;
     --shadow:4px 4px 0 0 #0a0b10; --shadow-sm:3px 3px 0 0 #0a0b10;
     --grad:var(--accent); --shadow-col:#0a0b10;
-    --hdr-h:56px; --tb-h:52px; --kpi-h:118px; --maxw:1380px;
+    --hdr-h:56px; --tb-h:52px; --kpi-h:118px; --ft-h:40px; --maxw:1380px;
     --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
   }
   [data-theme="light"]{
@@ -100,14 +100,19 @@
   .btn.active{ border-color:var(--accent); color:var(--accent); background:var(--accent-weak); }
 
   /* ── layout ── */
-  .layout{ display:grid; grid-template-columns:276px 1fr; height:calc(100vh - var(--hdr-h) - var(--tb-h) - var(--kpi-h)); }
+  .layout{ display:grid; grid-template-columns:276px 1fr; height:calc(100vh - var(--hdr-h) - var(--tb-h) - var(--kpi-h) - var(--ft-h)); }
   aside{ border-right:1px solid var(--border); background:var(--surface); overflow:auto; padding:8px; }
   aside h2{ font-size:11px; text-transform:uppercase; color:var(--muted); padding:8px 10px 6px; margin:0; letter-spacing:.06em; font-weight:700; }
   .repo{ padding:10px 12px; cursor:pointer; border-radius:var(--radius-sm); transition:background .15s; position:relative; margin-bottom:2px; }
   .repo:hover{ background:var(--surface-2); }
   .repo.active{ background:var(--accent-weak); }
   .repo.active::before{ content:""; position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:3px; background:var(--accent); }
-  .repo .name{ font-weight:650; }
+  .repo .name{ font-weight:650; display:flex; align-items:center; gap:6px; }
+  .repo-nm{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .repo-insight{ flex:0 0 auto; padding:1px 5px; border:1px solid var(--border); background:var(--bg);
+    color:var(--muted); border-radius:var(--radius-sm); cursor:pointer; line-height:0; opacity:0; transition:opacity .15s; }
+  .repo:hover .repo-insight{ opacity:1; }
+  .repo-insight:hover{ border-color:var(--accent); color:var(--accent); }
   .repo .meta{ color:var(--muted); font-size:12px; margin-top:1px; }
   .repo .toks{ font-size:11px; margin-top:4px; color:var(--fg-soft); }
   main{ overflow:auto; padding:24px max(20px,calc((100% - var(--maxw))/2)) 64px; }
@@ -139,6 +144,7 @@
   .pill{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:var(--radius-pill); font-size:11px;
     font-weight:600; background:var(--surface-2); border:1px solid var(--border); color:var(--fg-soft); }
   .pill.err{ color:var(--red); border-color:color-mix(in srgb,var(--red) 35%,transparent); background:color-mix(in srgb,var(--red) 12%,transparent); }
+  .pill.temp{ color:var(--amber); border-color:color-mix(in srgb,var(--amber) 40%,transparent); background:color-mix(in srgb,var(--amber) 14%,transparent); }
   .hbadge{ display:inline-block; min-width:34px; text-align:center; padding:2px 8px; border-radius:var(--radius-pill);
     font-weight:700; font-size:12px; color:var(--c); background:color-mix(in srgb,var(--c) 15%,transparent);
     border:1px solid color-mix(in srgb,var(--c) 30%,transparent); }
@@ -271,8 +277,10 @@
   }
   /* ── footer ── */
   #appfoot{ display:flex; align-items:center; gap:12px; justify-content:space-between;
+    height:var(--ft-h); box-sizing:border-box;
     padding:8px 16px; border-top:2px solid var(--border); background:var(--surface);
-    font-size:11px; color:var(--muted); }
+    font-size:11px; color:var(--muted);
+    position:sticky; bottom:0; z-index:50; }
   #appfoot .ft-left{ font-weight:600; letter-spacing:.02em; display:inline-flex; align-items:center; gap:10px; }
   .ft-right{ display:inline-flex; align-items:center; gap:12px; }
   .ft-est{ font-weight:600; color:var(--text); }
@@ -391,6 +399,10 @@ function applyTheme(t){
 }
 function toggleTheme(){ applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); }
 function healthBadge(h){ if(h==null) return '—'; const c=h>=80?'var(--green)':(h>=50?'var(--amber)':'var(--red)'); return `<span class="hbadge" style="--c:${c}">${h}</span>`; }
+// Session "tạm": project là thư mục tạm OS (Temp/tmp.*) — thường do AgentLens gọi
+// `claude -p` để tóm tắt/insight. Vẫn tính chi phí, chỉ gắn badge cho dễ nhận.
+function isTempProject(p){ return !!p && /^temp$|^tmp([.\-_].*)?$|^\.?agentlens|llm-scratch/i.test(p); }
+function tempBadge(p){ return isTempProject(p) ? ` <span class="pill temp" title="Session tạm — do AgentLens chạy claude -p (tóm tắt/insight) trong thư mục tạm. Vẫn tính vào chi phí.">temp</span>` : ''; }
 
 function setRange(r, btn){
   range = r;
@@ -434,8 +446,12 @@ async function loadLlmStatus(){
   if(!el) return;
   let s; try { s = await j('/api/llm-status'); } catch(e){ el.innerHTML=''; return; }
 
-  // chi tiêu tháng (ước tính)
-  if(est) est.innerHTML = `· ≈${money(s.month_cost_usd)} <span class="est-tag">tháng ${s.month||''} (ước tính)</span>`;
+  // chi tiêu tháng (ước tính) + phần AgentLens tự dùng qua claude -p (session temp)
+  if(est){
+    let h = `· ≈${money(s.month_cost_usd)} <span class="est-tag">tháng ${s.month||''} (ước tính)</span>`;
+    if(s.self_cost_usd>0) h += ` <span class="est-tag" title="Phần ước tính do chính AgentLens gọi claude -p (tóm tắt/insight) — các session temp. Đã nằm trong tổng ước tính.">· tự dùng ≈${money(s.self_cost_usd)}</span>`;
+    est.innerHTML = h;
+  }
 
   // combobox model
   if(sel){
@@ -451,10 +467,14 @@ async function loadLlmStatus(){
     return;
   }
   const am = s.auth && s.auth.auth_method;
-  const sub = s.backend==='cli' && am==='oauth_token';
+  const subType = s.auth && s.auth.subscription_type;
+  // Subscription = backend cli + đã login bằng tài khoản Claude.ai (không phải API key).
+  // Claude Code mới trả authMethod="claude.ai" (cũ: "oauth_token"); subscription_type là tín hiệu chắc nhất.
+  const sub = s.backend==='cli' && s.auth && s.auth.logged_in
+              && (!!subType || am==='claude.ai' || am==='oauth_token');
   const cls = sub ? 'sub' : (s.backend==='cli' ? 'off' : 'api');
   let label;
-  if(sub) label = 'Insight: subscription (claude -p)';
+  if(sub) label = 'Insight: subscription'+(subType?` (${subType})`:'')+' · claude -p';
   else if(s.backend==='cli') label = 'Insight: claude -p (chưa /login?)';
   else label = 'Insight: API key';
   el.innerHTML = `<span class="ft-chip ${cls}"><span class="ft-dot"></span>${label}</span>`;
@@ -481,8 +501,10 @@ async function loadRepos(){
       <div class="name">Tất cả repo</div><div class="meta">${ps.length} repo</div></div>`;
   for(const p of ps){
     const name = p.project || '(không rõ)';
-    html += `<div class="repo ${activeRepo===p.project?'active':''}" onclick="selectRepo(${JSON.stringify(p.project)})">
-      <div class="name">${esc(name)}</div>
+    // nháy ĐƠN cho attribute để JSON.stringify (nháy kép) lồng vào không vỡ HTML
+    html += `<div class="repo ${activeRepo===p.project?'active':''}" onclick='selectRepo(${JSON.stringify(p.project)})'>
+      <div class="name"><span class="repo-nm">${esc(name)}</span>
+        <button class="repo-insight" title="Chạy insight LLM cho repo này ngay" onclick='event.stopPropagation();runRepoInsight(event,${JSON.stringify(p.project)})'>${ic('bulb',12)}</button></div>
       <div class="meta">${fmt(p.sessions)} session · ${tstr(p.last_activity)}</div>
       <div class="toks">${tokBadges(p)}</div></div>`;
   }
@@ -495,7 +517,9 @@ async function selectRepo(project){
   activeRepo = project; activeSession = null;
   await loadRepos();
   const title = project===null ? 'Tất cả repo' : esc(project||'(không rõ)');
-  let html = `<div class="crumbs"><a onclick="selectRepo(null)">Repos</a> <span style="color:var(--muted)">/</span> <b>${title}</b></div>`;
+  // Nút Insight ngay trong header repo: chọn repo nào -> insight riêng repo đó (1 click).
+  const insightBtn = `<button class="btn" style="margin-left:auto" onclick="openInsights()" title="Phân tích cross-session bằng LLM cho ${project===null?'tất cả repo':esc(project)}">${ic('bulb',13)} Insight ${project===null?'tất cả':'repo này'}</button>`;
+  let html = `<div class="crumbs" style="display:flex;align-items:center"><a onclick="selectRepo(null)">Repos</a> <span style="color:var(--muted)">/</span> <b>${title}</b>${insightBtn}</div>`;
   html += `<div class="tabs">` + TABS.map(([k,l]) =>
     `<button class="tab ${activeTab===k?'active':''}" data-t="${k}" onclick="setTab('${k}')">${ic(TABICON[k])}${l}</button>`).join('') + `</div>`;
   html += `<div id="tabContent"></div>`;
@@ -722,7 +746,7 @@ async function loadLive(project, c){
       <div class="lc-top">
         ${dot}
         <b class="mono">${shortId(s.session_id)}</b>
-        <span class="pill">${esc(s.project||'(không rõ)')}</span>
+        <span class="pill${isTempProject(s.project)?' temp':''}">${esc(s.project||'(không rõ)')}</span>
         <span class="pill">${esc(s.git_branch||'—')}</span>
         ${s.model?`<span class="pill">${esc(s.model)}</span>`:''}
         <span class="time" style="margin-left:auto;color:var(--muted);font-size:12px">${age}</span>
@@ -752,7 +776,7 @@ async function loadSessionsTab(project, c){
     const tagp = s.tag ? ` <span class="pill">${esc(s.tag)}</span>` : '';
     html += `<tr onclick='openSession(${JSON.stringify(s.session_id)})'>
       <td class="mono">${dot}${shortId(s.session_id)}${tagp}</td>
-      <td>${esc(s.project||'')}</td>
+      <td>${esc(s.project||'')}${tempBadge(s.project)}</td>
       <td class="num">${healthBadge(s.health)}</td>
       <td><span class="pill">${esc(s.git_branch||'—')}</span></td>
       <td>${tstr(s.last_activity)}</td>
@@ -846,6 +870,8 @@ async function loadTrends(){
   try {
     const d = await j('/api/summary?group_by=day&'+rq());
     if(d.length<2){ document.getElementById('trends').innerHTML=''; return; }
+    // API trả ngày mới→cũ; sắp xếp tăng dần để trục thời gian đọc cũ(trái)→mới(phải).
+    d.sort((a,b)=>(a.label||'').localeCompare(b.label||''));
     const max = Math.max(...d.map(x=>x.input_tokens+x.output_tokens),1);
     let bars = d.map(x=>{
       const h = Math.round((x.input_tokens+x.output_tokens)/max*66)+2;
@@ -1117,11 +1143,22 @@ async function doSearch(){
   document.getElementById('main').innerHTML = html;
 }
 
+// Nút insight trên repo card (sidebar): mở panel insight scope = repo rồi chạy LLM ngay.
+async function runRepoInsight(ev, project){
+  if(ev) ev.stopPropagation();
+  activeRepo = project; activeSession = null;
+  await openInsights();
+  runAnalyze();
+}
+
 async function openInsights(){
   activeSession = null;
-  const list = await j('/api/insights').catch(()=>[]);
+  // insight theo repo: nếu đang chọn repo -> chỉ lấy/lưu insight của repo đó
+  const pq = activeRepo ? ('?project='+encodeURIComponent(activeRepo)) : '';
+  const list = await j('/api/insights'+pq).catch(()=>[]);
   const scope = activeRepo ? esc(activeRepo) : 'tất cả repo';
-  let html = `<div class="crumbs">${ic('bulb',14)} Cross-session insight — phạm vi <b>${scope}</b>
+  const hint = activeRepo ? '' : ` <span class="note">— chọn 1 repo ở sidebar rồi mở lại để insight riêng repo đó</span>`;
+  let html = `<div class="crumbs">${ic('bulb',14)} Cross-session insight — phạm vi <b>${scope}</b>${hint}
      <span style="margin-left:auto"><button class="btn primary" onclick="runAnalyze()">${ic('settings',14)} Phân tích ngay (LLM)</button></span></div>
      <div id="analyzeBox"></div>`;
   if(list.length){
@@ -1184,6 +1221,11 @@ function connectWS(){
   loadLlmStatus();                   // footer: trạng thái LLM/auth
   connectWS();                       // live update qua WebSocket
   setInterval(loadTotals, 8000);     // fallback poll tổng
+  // Fallback poll tab Live: WS chỉ bắn khi transcript đổi nên dễ lỡ nhịp khi
+  // server restart/đứt mạng hoặc Claude idle → poll 4s để Live luôn đồng bộ.
+  setInterval(() => {
+    if(activeTab==='live' && !activeSession && document.getElementById('liveCards')) loadLive(activeRepo);
+  }, 4000);
   setInterval(loadLlmStatus, 60000); // refresh trạng thái auth định kỳ
 })();
 </script>
