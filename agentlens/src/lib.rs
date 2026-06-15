@@ -135,6 +135,11 @@ pub async fn run() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("AgentLens chạy tại http://{addr}  (db: {})", db_path.display());
     tracing::info!("Tailing transcripts trong: {}", projects_dir.display());
+    if llm::is_enabled() {
+        tracing::info!("LLM (FR-8) bật — backend: {}", llm::backend_label());
+    } else {
+        tracing::info!("LLM (FR-8) tắt — đặt ANTHROPIC_API_KEY hoặc `claude` + /login subscription");
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }

@@ -332,7 +332,9 @@ pub async fn analyze_insights(
     if !llm::is_enabled() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Cần ANTHROPIC_API_KEY để phân tích cross-session.".to_string(),
+            "Cần LLM để phân tích cross-session: đặt ANTHROPIC_API_KEY, hoặc cài Claude Code \
+             + `/login` subscription (backend `claude -p`)."
+                .to_string(),
         ));
     }
     let project = q.get("project").map(|s| s.as_str()).filter(|s| !s.is_empty());
@@ -453,7 +455,9 @@ pub async fn summarize(State(state): State<AppState>, Path(id): Path<String>) ->
     if !llm::is_enabled() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "FR-8 chưa bật: đặt ANTHROPIC_API_KEY (và tùy chọn AGENTLENS_MODEL) rồi chạy lại.".to_string(),
+            "FR-8 chưa bật: đặt ANTHROPIC_API_KEY, hoặc cài Claude Code + `/login` subscription \
+             (backend `claude -p`). Tùy chọn AGENTLENS_MODEL / AGENTLENS_LLM_BACKEND."
+                .to_string(),
         ));
     }
     let brief = {

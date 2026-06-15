@@ -2,7 +2,7 @@
 
 Công cụ **local** theo dõi & review session **Claude Code**: thu hook + transcript JSONL (+ OpenTelemetry tùy chọn) → lưu **SQLite** → UI web/desktop xem theo **repo** với thống kê **token in / out / cached**, **chi phí**, **tiết kiệm cache** và nhiều phân tích để cải thiện workflow agent. Việc thu thập là **zero-token** (chỉ đọc dữ liệu Claude Code đã sinh ra trên máy).
 
-1 binary Rust gọn: hook receiver + JSONL tailer + OTLP receiver + query API + UI server. Dữ liệu **không rời máy** (chỉ gọi LLM khi bạn bấm "Tóm tắt/Insight" và đã đặt API key).
+1 binary Rust gọn: hook receiver + JSONL tailer + OTLP receiver + query API + UI server. Dữ liệu **không rời máy** (chỉ gọi LLM khi bạn bấm "Tóm tắt/Insight", qua API key **hoặc** login subscription).
 
 ## Tính năng
 
@@ -13,7 +13,7 @@ Công cụ **local** theo dõi & review session **Claude Code**: thu hook + tran
 - **Tools / Files** — phân tích tool (tần suất, lỗi, thời lượng), chuỗi tool (A→B), thao tác chậm, hot files.
 - **Phân tích** — trend token theo ngày, health theo tuần, repo leaderboard, outcome correlation, heatmap hoạt động.
 - **Chất lượng** — digest 7 ngày, **model right-sizing**, prompt quality theo độ dài & style, recovery (gỡ lỗi), cache advisor, skill/subagent usage, error clustering.
-- **Insight (LLM)** — tóm tắt 1 session hoặc phân tích cross-session để gợi ý cải thiện (tùy chọn, cần API key, có redaction).
+- **Insight (LLM)** — tóm tắt 1 session hoặc phân tích cross-session để gợi ý cải thiện (tùy chọn; **API key** hoặc **subscription** qua `claude -p`; có redaction).
 - **Giao diện** — pixel/retro, 2 theme **sáng/tối** (nút ☀/🌙, nhớ lựa chọn), lọc thời gian today/7d/30d/90d, tìm kiếm full-text. Áp dụng design system từ skill `ui-ux-pro-max`.
 
 ## Yêu cầu
@@ -64,10 +64,47 @@ Kết quả: `.deb`/`.AppImage` (Linux), `.dmg`/`.app` (macOS), `.msi`/`.exe` (W
 | `AGENTLENS_PROJECTS_DIR` | `~/.claude/projects` | thư mục transcript JSONL để tail |
 | `AGENTLENS_PRICING_URL` | LiteLLM (community) | nguồn bảng giá JSON, refresh hàng ngày. Đặt rỗng (`""`) để chỉ dùng bảng built-in |
 | `AGENTLENS_PRICING_FILE` | — | file JSON giá local (ưu tiên hơn URL) |
-| `ANTHROPIC_API_KEY` | — | bật tính năng Insight/Tóm tắt (LLM). Không đặt → tắt |
-| `AGENTLENS_MODEL` | `claude-haiku-4-5-20251001` | model cho tính năng LLM |
+| `ANTHROPIC_API_KEY` | — | bật LLM backend **api** (Messages API, pay-as-you-go). Không đặt → thử backend **cli** |
+| `AGENTLENS_LLM_BACKEND` | auto | ép backend LLM: `api` (dùng API key) hoặc `cli` (dùng `claude -p`, kế thừa login subscription). Auto: có API key → `api`, không → `cli` nếu có `claude` |
+| `AGENTLENS_MODEL` | `claude-haiku-4-5-20251001` (api) / `haiku` (cli) | model cho tính năng LLM |
 
 > **Chi phí là ước tính** theo bảng giá (built-in hoặc LiteLLM) — phụ thuộc nguồn giá, không phải hóa đơn chính thức.
+
+## Tính năng LLM (Insight/Tóm tắt) — chọn 1 trong 2 cách auth
+
+Phần "theo dõi" (tail JSONL + hook + OTLP) **không cần đăng nhập gì cả** — chỉ đọc file local. Chỉ tính năng **Tóm tắt/Insight (FR-8)** mới gọi Claude, và có **2 backend**:
+
+### Cách A — API key (pay-as-you-go)
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...      # lấy ở https://platform.claude.com/ (Console → API Keys)
+# tùy chọn: export AGENTLENS_MODEL=claude-haiku-4-5-20251001
+```
+Tính tiền theo API credits. **Không** trừ vào credit subscription.
+
+### Cách B — Subscription (Pro/Max) qua `claude -p` — không tốn API key riêng
+AgentLens **không tự đọc OAuth keychain**. Nó chỉ gọi `claude -p`; **Claude Code tự đọc credential của chính nó** (đã lưu khi bạn login). Bạn login **một lần** trên máy chạy AgentLens:
+
+```bash
+# 1) Đăng nhập subscription (giống Claude Code) — mở trình duyệt OAuth
+claude auth login            # hoặc: chạy `claude` rồi gõ /login, chọn "Claude account (subscription)"
+claude auth status           # kiểm tra đã login
+
+# 2) (chạy headless/server/CI) sinh token dài hạn từ subscription:
+claude setup-token           # in ra token; xuất ra biến môi trường cho tiến trình của bạn
+
+# 3) Ép AgentLens dùng backend cli rồi chạy:
+export AGENTLENS_LLM_BACKEND=cli
+export AGENTLENS_MODEL=haiku            # alias model cho `claude -p` (tùy chọn)
+cargo run --release
+```
+
+**Credential lưu ở đâu?** Do **Claude Code** quản lý, *không* nằm trong project này:
+- macOS: **Keychain** của hệ thống (mục Anthropic/Claude Code).
+- Linux/Windows: credential store của Claude Code (thường dưới `~/.claude`). *[Unverified — đường dẫn chính xác do Claude Code quy định; xác nhận bằng `claude auth status`].*
+
+AgentLens chỉ cần chạy `claude -p` **dưới cùng user** đã login là kế thừa được. Khi server khởi động sẽ log: `LLM (FR-8) bật — backend: claude -p (subscription)`.
+
+> **Lưu ý ToS:** dùng login subscription cho công cụ **của chính bạn** là OK. Anthropic **không cho phép** dùng claude.ai login để cung cấp dịch vụ Agent SDK **cho người dùng khác** — trường hợp đó phải dùng API key.
 
 ## Bật hook Claude Code (realtime, tùy chọn)
 
