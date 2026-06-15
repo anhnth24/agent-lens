@@ -81,6 +81,7 @@ Kết quả: `.deb`/`.AppImage` (Linux), `.dmg`/`.app` (macOS), `.msi`/`.exe` (W
 | `AGENTLENS_PRICING_FILE` | — | file JSON giá local (ưu tiên hơn URL) |
 | `ANTHROPIC_API_KEY` | — | bật LLM backend **api** (Messages API, pay-as-you-go). Không đặt → thử backend **cli** |
 | `AGENTLENS_LLM_BACKEND` | auto | ép backend LLM: `api` (dùng API key) hoặc `cli` (dùng `claude -p`, kế thừa login subscription). Auto: có API key → `api`, không → `cli` nếu có `claude` |
+| `AGENTLENS_CLAUDE_BIN` | tự dò PATH | đường dẫn tới `claude` (dùng khi không nằm trên PATH, hoặc Windows dùng shim `claude.cmd`). VD `C:\Users\me\AppData\Roaming\npm\claude.cmd` |
 | `AGENTLENS_MODEL` | `claude-haiku-4-5` | model cho LLM. Có thể đổi nhanh bằng **combobox ở footer** (Haiku/Sonnet/Opus) — lựa chọn footer lưu vào DB và **ưu tiên hơn** env này |
 
 > **Chi phí là ước tính** theo bảng giá (built-in hoặc LiteLLM) — phụ thuộc nguồn giá, không phải hóa đơn chính thức.

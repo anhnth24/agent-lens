@@ -12,6 +12,7 @@
 use anyhow::{anyhow, Result};
 use regex::Regex;
 use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::RwLock;
 
@@ -100,20 +101,56 @@ fn api_key() -> Option<String> {
     std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty())
 }
 
-/// Có `claude` (Claude Code CLI) trên PATH không? (không spawn process)
-fn cli_available() -> bool {
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path) {
-            if dir.join("claude").is_file() {
-                return true;
-            }
-            #[cfg(windows)]
-            if dir.join("claude.exe").is_file() {
-                return true;
+/// Tìm launcher `claude`. Ưu tiên AGENTLENS_CLAUDE_BIN, rồi quét PATH.
+/// Trên Windows npm cài shim `claude.cmd` (không phải .exe) nên phải xét .exe/.cmd/.bat;
+/// file `claude` không đuôi (script bash) bị bỏ qua trên Windows vì không exec trực tiếp được.
+fn resolve_claude() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("AGENTLENS_CLAUDE_BIN") {
+        if !p.is_empty() {
+            let pb = PathBuf::from(p);
+            if pb.is_file() {
+                return Some(pb);
             }
         }
     }
-    false
+    #[cfg(windows)]
+    let names: &[&str] = &["claude.exe", "claude.cmd", "claude.bat"];
+    #[cfg(not(windows))]
+    let names: &[&str] = &["claude"];
+
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        for n in names {
+            let cand = dir.join(n);
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+/// Có `claude` (Claude Code CLI) để dùng backend cli không?
+fn cli_available() -> bool {
+    resolve_claude().is_some()
+}
+
+/// Tạo Command cho `claude`. Trên Windows, shim `.cmd`/`.bat` không exec trực tiếp
+/// qua CreateProcess được nên phải gọi qua `cmd /C`.
+fn claude_command(bin: &Path) -> tokio::process::Command {
+    #[cfg(windows)]
+    {
+        let ext = bin
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase());
+        if matches!(ext.as_deref(), Some("cmd") | Some("bat")) {
+            let mut c = tokio::process::Command::new("cmd");
+            c.arg("/C").arg(bin);
+            return c;
+        }
+    }
+    tokio::process::Command::new(bin)
 }
 
 /// Backend đang hiệu lực (env ép > auto-detect).
@@ -260,8 +297,15 @@ async fn ask_api(content: &str) -> Result<String> {
 async fn ask_cli(content: &str) -> Result<String> {
     let model = current_model();
 
-    let mut child = tokio::process::Command::new("claude")
-        .arg("-p")
+    let bin = resolve_claude().ok_or_else(|| {
+        anyhow!(
+            "không tìm thấy `claude` trên PATH. Cài Claude Code + `claude auth login` (subscription); \
+             hoặc chỉ đường dẫn bằng AGENTLENS_CLAUDE_BIN; hoặc dùng AGENTLENS_LLM_BACKEND=api với ANTHROPIC_API_KEY."
+        )
+    })?;
+
+    let mut cmd = claude_command(&bin);
+    cmd.arg("-p")
         .arg("--model")
         .arg(&model)
         .arg("--output-format")
@@ -269,14 +313,14 @@ async fn ask_cli(content: &str) -> Result<String> {
         .current_dir(std::env::temp_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            anyhow!(
-                "không chạy được `claude` CLI ({e}). Cài Claude Code và `claude` + `/login` \
-                 (subscription), hoặc đặt ANTHROPIC_API_KEY và AGENTLENS_LLM_BACKEND=api."
-            )
-        })?;
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| {
+        anyhow!(
+            "không chạy được `claude` ({}) ({e}). Thử đặt AGENTLENS_CLAUDE_BIN tới file claude, \
+             hoặc dùng AGENTLENS_LLM_BACKEND=api với ANTHROPIC_API_KEY.",
+            bin.display()
+        )
+    })?;
 
     if let Some(mut stdin) = child.stdin.take() {
         use tokio::io::AsyncWriteExt;
