@@ -37,6 +37,18 @@ cargo run --release          # mặc định http://127.0.0.1:8787
 
 Mở <http://127.0.0.1:8787>. Tailer tự quét `~/.claude/projects/**/*.jsonl` nên **chạy là có dữ liệu ngay**, không bắt buộc cấu hình hook.
 
+### Launcher có menu (`run.sh`) — tiện cho Windows
+
+Có sẵn script menu cho các thao tác hay dùng (chạy server, build release, desktop, chọn backend LLM):
+
+```bash
+cd agentlens
+./run.sh            # hiện menu; hoặc chọn nhanh: ./run.sh 2  (build release)
+```
+
+- **Windows:** chạy qua **Git Bash** (chuột phải → *Git Bash Here* → `./run.sh`) hoặc **WSL** (`bash run.sh`). Build release tạo `target/release/agentlens.exe`. Cần Rust + **MSVC Build Tools** (để biên dịch SQLite bundled).
+- **macOS/Linux:** chạy trực tiếp `./run.sh`.
+
 ## Cách 2 — App desktop (Tauri 2)
 
 **Chạy thử (dev):** app tự chạy server lõi trong nền và mở cửa sổ trỏ tới UI (cùng origin với API, không CORS):
