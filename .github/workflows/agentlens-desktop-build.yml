@@ -1,0 +1,50 @@
+name: AgentLens Desktop Build
+
+# Build app desktop (Tauri) cho macOS (Apple Silicon + Intel) và Windows.
+# Tauri KHÔNG cross-compile macOS -> phải build trên runner macOS thật.
+# Kích hoạt thủ công (Actions -> Run workflow) hoặc khi push tag `agentlens-v*`.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['agentlens-v*']
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest,   target: aarch64-apple-darwin,   label: macos-arm64 }
+          - { os: macos-latest,   target: x86_64-apple-darwin,    label: macos-intel }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, label: windows-x64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agentlens/desktop/src-tauri -> target
+
+      # cài tauri-cli nhanh qua bản binary dựng sẵn
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install Tauri CLI
+        run: cargo binstall -y tauri-cli
+
+      - name: Build desktop bundle
+        working-directory: agentlens/desktop/src-tauri
+        run: cargo tauri build --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentlens-${{ matrix.label }}
+          if-no-files-found: warn
+          path: |
+            agentlens/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            agentlens/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+            agentlens/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            agentlens/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
