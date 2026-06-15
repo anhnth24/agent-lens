@@ -1,6 +1,6 @@
 [package]
 name = "agentlens"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Local observability for Claude Code sessions: capture hooks + transcript JSONL, store in SQLite, review by repo with token in/out/cached stats."
 

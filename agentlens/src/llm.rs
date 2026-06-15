@@ -118,16 +118,40 @@ fn resolve_claude() -> Option<PathBuf> {
     #[cfg(not(windows))]
     let names: &[&str] = &["claude"];
 
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        for n in names {
-            let cand = dir.join(n);
-            if cand.is_file() {
-                return Some(cand);
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            for n in names {
+                let cand = dir.join(n);
+                if cand.is_file() {
+                    return Some(cand);
+                }
             }
         }
     }
+    // Fallback: app GUI trên macOS/Linux KHÔNG kế thừa PATH shell -> quét thư mục cài phổ biến.
+    #[cfg(not(windows))]
+    for dir in unix_bin_dirs() {
+        let cand = dir.join("claude");
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
     None
+}
+
+/// Thư mục bin cài CLI thường gặp trên macOS/Linux (app GUI thường thiếu trong PATH).
+#[cfg(not(windows))]
+fn unix_bin_dirs() -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    if let Some(h) = dirs::home_dir() {
+        for sub in [".local/bin", ".npm-global/bin", ".bun/bin", ".deno/bin", ".claude/local"] {
+            v.push(h.join(sub));
+        }
+    }
+    v
 }
 
 /// Có `claude` (Claude Code CLI) để dùng backend cli không?
@@ -157,7 +181,16 @@ fn claude_command(bin: &Path) -> tokio::process::Command {
     }
     #[cfg(not(windows))]
     {
-        tokio::process::Command::new(bin)
+        let mut c = tokio::process::Command::new(bin);
+        // Bơm thư mục bin phổ biến vào PATH để `claude` (script node) tìm thấy `node`
+        // khi AgentLens chạy như app GUI (macOS PATH tối thiểu, thiếu homebrew/npm).
+        let extra: Vec<String> = unix_bin_dirs()
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        let cur = std::env::var("PATH").unwrap_or_default();
+        c.env("PATH", format!("{}:{}", extra.join(":"), cur));
+        c
     }
 }
 
