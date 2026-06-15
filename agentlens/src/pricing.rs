@@ -98,8 +98,23 @@ pub fn for_model(model: &str) -> Prices {
             }
         }
     }
+    // Built-in (USD / 1 triệu token) — khớp giá Anthropic công bố, dùng khi không tải được
+    // bảng ngoài (LiteLLM). Cập nhật: Opus 4.5 trở đi GIẢM còn $5/$25 (cache $0.5/$6.25);
+    // chỉ Opus 4/4.0/4.1 và Claude 3 Opus cũ mới còn $15/$75.
     if m.contains("opus") {
-        Prices { input: 15.0, output: 75.0, cache_read: 1.5, cache_write: 18.75 }
+        let legacy = m.contains("opus-4-1")
+            || m.contains("opus-4.1")
+            || m.contains("opus-4-0")
+            || m.contains("opus-4.0")
+            || m.ends_with("opus-4")
+            || m.contains("3-opus"); // claude-3-opus
+        if legacy {
+            Prices { input: 15.0, output: 75.0, cache_read: 1.5, cache_write: 18.75 }
+        } else {
+            Prices { input: 5.0, output: 25.0, cache_read: 0.5, cache_write: 6.25 }
+        }
+    } else if m.contains("fable") {
+        Prices { input: 10.0, output: 50.0, cache_read: 1.0, cache_write: 12.5 }
     } else if m.contains("haiku") {
         Prices { input: 0.8, output: 4.0, cache_read: 0.08, cache_write: 1.0 }
     } else if m.contains("sonnet") || m.contains("claude") {

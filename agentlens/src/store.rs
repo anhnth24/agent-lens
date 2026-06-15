@@ -118,6 +118,24 @@ pub fn cost_since(conn: &Connection, from_iso: &str) -> Result<f64> {
     Ok(c)
 }
 
+/// Phần chi phí ước tính do CHÍNH AgentLens tạo ra: các session "tạm" sinh khi gọi
+/// `claude -p` (tóm tắt/insight) trong thư mục tạm. Nhận diện qua tên project
+/// (Temp / tmp.* / scratch / agentlens) — khớp với isTempProject() bên UI.
+pub fn self_cost_since(conn: &Connection, from_iso: &str) -> Result<f64> {
+    // project nằm ở bảng sessions (events không có cột project) -> JOIN để lọc.
+    let c: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(e.cost_usd),0) FROM events e \
+         JOIN sessions s ON s.session_id = e.session_id \
+         WHERE e.ts >= ?1 AND ( \
+            LOWER(s.project)='temp' OR LOWER(s.project)='tmp' \
+            OR LOWER(s.project) LIKE 'tmp.%' OR LOWER(s.project) LIKE 'tmp-%' OR LOWER(s.project) LIKE 'tmp\\_%' ESCAPE '\\' \
+            OR LOWER(s.project) LIKE '%scratch%' OR LOWER(s.project) LIKE '%agentlens%')",
+        params![from_iso],
+        |r| r.get(0),
+    )?;
+    Ok(c)
+}
+
 /// Mệnh đề thời gian an toàn (from do server sinh từ keyword range, không phải input thô).
 fn since(col: &str, from: Option<&str>, kw: &str) -> String {
     match from {
@@ -215,6 +233,13 @@ pub fn open(path: &std::path::Path) -> Result<Connection> {
         "ALTER TABLE events ADD COLUMN cache_savings_usd REAL DEFAULT 0",
     ] {
         let _ = conn.execute(stmt, []);
+    }
+    // Một lần: xóa sạch events để tailer đọc lại transcript và tính usage theo message.id
+    // (sửa lỗi cũ đếm trùng cache_read/token do mỗi message.id bị ghi thành nhiều dòng).
+    // An toàn: events là dữ liệu DẪN XUẤT từ transcript, sẽ được dựng lại đầy đủ.
+    if get_setting(&conn, "dedup_msgid_v1")?.as_deref() != Some("done") {
+        conn.execute("DELETE FROM events", [])?;
+        set_setting(&conn, "dedup_msgid_v1", "done")?;
     }
     Ok(conn)
 }
@@ -1112,17 +1137,31 @@ pub fn insert_insight(conn: &Connection, scope: &str, content: &str) -> Result<(
     Ok(())
 }
 
-pub fn list_insights(conn: &Connection, limit: i64) -> Result<Value> {
-    let mut stmt =
-        conn.prepare("SELECT scope,created_at,content FROM insights ORDER BY id DESC LIMIT ?1")?;
-    let rows = stmt.query_map(params![limit], |r| {
+/// Liệt kê insight đã lưu. `scope = Some(repo)` -> chỉ insight của repo đó; None -> tất cả.
+pub fn list_insights(conn: &Connection, scope: Option<&str>, limit: i64) -> Result<Value> {
+    let map = |r: &rusqlite::Row| {
         Ok(json!({
             "scope": r.get::<_, Option<String>>(0)?,
             "created_at": r.get::<_, Option<String>>(1)?,
             "content": r.get::<_, Option<String>>(2)?,
         }))
-    })?;
-    Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
+    };
+    let rows: Vec<Value> = match scope {
+        Some(s) => {
+            let mut stmt = conn.prepare(
+                "SELECT scope,created_at,content FROM insights WHERE scope=?1 ORDER BY id DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![s, limit], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+        None => {
+            let mut stmt = conn
+                .prepare("SELECT scope,created_at,content FROM insights ORDER BY id DESC LIMIT ?1")?;
+            let rows = stmt.query_map(params![limit], map)?.collect::<rusqlite::Result<_>>()?;
+            rows
+        }
+    };
+    Ok(Value::Array(rows))
 }
 
 /// Hoàn tất tool khi có tool_result: set is_error + ts_result + duration (ms).

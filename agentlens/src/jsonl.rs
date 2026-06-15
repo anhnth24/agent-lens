@@ -21,6 +21,10 @@ pub struct ToolResultRef {
 pub struct Entry {
     pub uuid: String,
     pub session_id: String,
+    /// id của API response (`message.id`, vd "msg_..."). Claude Code ghi nhiều dòng
+    /// transcript (mỗi content block 1 dòng) cùng 1 message.id và LẶP message.usage
+    /// -> dùng để dedup, chỉ tính token 1 lần/message.id (tránh phồng cache_read).
+    pub message_id: Option<String>,
     pub prompt_id: Option<String>,
     pub ts: String,
     pub kind: String, // "user" | "assistant"
@@ -88,6 +92,7 @@ pub fn parse(line: &str) -> Option<Entry> {
     if let Some(m) = msg {
         e.role = s(m, "role");
         e.model = s(m, "model");
+        e.message_id = s(m, "id");
 
         if let Some(u) = m.get("usage").filter(|u| u.is_object()) {
             e.input_tokens = u.get("input_tokens").and_then(|x| x.as_i64()).unwrap_or(0);

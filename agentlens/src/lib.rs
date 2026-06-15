@@ -50,13 +50,8 @@ pub async fn run() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| home.join(".claude").join("projects"));
 
-    // nạp bảng giá từ nguồn ngoài nếu cấu hình (AGENTLENS_PRICING_FILE/_URL)
-    match pricing::refresh_from_source().await {
-        Ok(n) if n > 0 => tracing::info!("Nạp {n} model giá từ nguồn ngoài"),
-        Ok(_) => tracing::info!("Dùng bảng giá built-in (ước tính). Đặt AGENTLENS_PRICING_URL/_FILE để cập nhật."),
-        Err(e) => tracing::warn!("Không nạp được bảng giá ngoài: {e} — dùng built-in"),
-    }
-
+    // Bảng giá ngoài KHÔNG nạp ở đây để tránh chặn startup (mạng/proxy có thể chậm/lỗi):
+    // server bind ngay với bảng built-in, việc nạp + recompute chạy trong task nền bên dưới.
     let conn = store::open(&db_path)?;
     store::recompute_costs(&conn)?; // cập nhật cost (kể cả row cũ) theo bảng giá hiện tại
     // khôi phục model LLM đã chọn ở footer (nếu có)
@@ -78,20 +73,24 @@ pub async fn run() -> anyhow::Result<()> {
         tokio::spawn(async move { tailer::run(st).await });
     }
 
-    // refresh bảng giá hàng ngày (nếu có nguồn ngoài) rồi tính lại cost
+    // Nạp bảng giá ngoài trong nền: chạy ngay lần đầu (không chặn startup) rồi lặp mỗi 24h.
+    // Thành công > 0 model → tính lại cost + đẩy WS để UI cập nhật. Lỗi mạng chỉ log, vẫn dùng built-in.
     {
         let st = state.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
-                if let Ok(n) = pricing::refresh_from_source().await {
-                    if n > 0 {
+                match pricing::refresh_from_source().await {
+                    Ok(n) if n > 0 => {
                         if let Ok(c) = st.db.lock() {
                             let _ = store::recompute_costs(&c);
                         }
                         let _ = st.events_tx.send(());
+                        tracing::info!("Nạp {n} model giá từ nguồn ngoài");
                     }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("Không nạp được bảng giá ngoài: {e} — dùng built-in"),
                 }
+                tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
             }
         });
     }

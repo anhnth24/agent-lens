@@ -3,7 +3,7 @@
 
 use crate::{jsonl, store, util::repo_name, AppState};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
@@ -12,6 +12,9 @@ pub async fn run(state: AppState) {
     let mut offsets: HashMap<PathBuf, u64> = HashMap::new();
     // prompt_id gần nhất theo session (chỉ dòng user có promptId) -> gán cho dòng assistant kế tiếp
     let mut last_prompt: HashMap<String, String> = HashMap::new();
+    // message.id đã tính usage (Claude Code ghi nhiều dòng cùng message.id, lặp usage)
+    // -> chỉ cộng token 1 lần/message.id. Bền qua restart vì tailer luôn đọc lại từ offset 0.
+    let mut seen_msg: HashSet<String> = HashSet::new();
     // poll nhanh khi có hoạt động gần đây, chậm lại khi rảnh (tiết kiệm CPU)
     let mut last_change = std::time::Instant::now() - std::time::Duration::from_secs(60);
     loop {
@@ -37,7 +40,7 @@ pub async fn run(state: AppState) {
         }
         let mut changed = false;
         for path in paths {
-            match process_file(&state, &path, &mut offsets, &mut last_prompt) {
+            match process_file(&state, &path, &mut offsets, &mut last_prompt, &mut seen_msg) {
                 Ok(n) if n > 0 => changed = true,
                 Ok(_) => {}
                 Err(err) => tracing::warn!("tail {:?}: {err}", path),
@@ -74,6 +77,7 @@ fn process_file(
     path: &Path,
     offsets: &mut HashMap<PathBuf, u64>,
     last_prompt: &mut HashMap<String, String>,
+    seen_msg: &mut HashSet<String>,
 ) -> anyhow::Result<usize> {
     let mut f = std::fs::File::open(path)?;
     let len = f.metadata()?.len();
@@ -105,6 +109,22 @@ fn process_file(
                 continue;
             }
             if let Some(mut entry) = jsonl::parse(line) {
+                // Dedup usage theo message.id: 1 API response bị ghi thành nhiều dòng
+                // (thinking/text/tool_use), mỗi dòng LẶP message.usage. Chỉ tính token
+                // cho dòng usage đầu tiên của message.id; các dòng sau zero để khỏi phồng.
+                if let Some(mid) = entry.message_id.clone() {
+                    let has_usage = entry.input_tokens
+                        + entry.output_tokens
+                        + entry.cache_read_tokens
+                        + entry.cache_creation_tokens
+                        > 0;
+                    if has_usage && !seen_msg.insert(mid) {
+                        entry.input_tokens = 0;
+                        entry.output_tokens = 0;
+                        entry.cache_read_tokens = 0;
+                        entry.cache_creation_tokens = 0;
+                    }
+                }
                 // propagate prompt_id: user có promptId -> nhớ; dòng sau (assistant) kế thừa
                 match &entry.prompt_id {
                     Some(pid) => {
